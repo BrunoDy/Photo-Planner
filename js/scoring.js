@@ -12,6 +12,7 @@ export const CONDITIONS = {
   zonsondergang: { label: 'Zonsondergang', icon: '🌇', hint: 'Open horizon naar het westen' },
   sterren: { label: 'Sterren', icon: '✨', hint: 'Donkere plek zonder lichtvervuiling' },
   zachtlicht: { label: 'Zacht licht', icon: '☁️', hint: 'Bos, watervallen, portret: bewolkt is ideaal' },
+  melkweg: { label: 'Melkweg', icon: '🌌', hint: 'Donkere plek met vrij zicht laag naar het zuiden (mrt–sep)' },
 };
 
 export const clamp01 = (x) => Math.max(0, Math.min(1, x));

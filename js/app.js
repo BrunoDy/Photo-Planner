@@ -1,10 +1,13 @@
 import * as store from './store.js';
 import { CONDITIONS, scoreLabel } from './scoring.js';
-import { getForecasts, forecastFor, clearWeatherCache, getGridForecast, classifySky, SKY_CLASSES } from './weather.js';
-import { BE_OUTLINE, gridCells } from './belgium.js';
+import { getForecasts, forecastFor, clearWeatherCache, getGridForecast } from './weather.js';
+import { fetchRadarFrames, radarTileUrl } from './radar.js';
+import { renderField } from './wxrender.js';
+import { BE_OUTLINE, gridRect } from './belgium.js';
 import { parseLocationText, searchQueryFromText } from './linkparse.js';
 import { putPhoto, deletePhoto, allPhotos, resizeImage } from './photos.js';
 import { photosNear } from './commons.js';
+import { milkyWayWindow } from './astro.js';
 import { allOpportunities, opportunitiesForDay, sunInfo, moonPhaseName, dayNoon, ALIGN_TOLERANCE } from './planner.js';
 import { distanceKm, travelMinutes, formatKm, formatMinutes, compassLabel, destination, angleDiff } from './geo.js';
 
@@ -131,14 +134,14 @@ function oppCard(o) {
   const pct = Math.round(o.score * 100);
   let target = o.arriveBy ?? o.time - 30 * 60000;
   let depart = dist ? target - (dist.min + 10) * 60000 : null;
-  const whenLabel = o.cond === 'sterren' ? 'beste uur' : o.cond === 'zachtlicht' ? 'beste moment' : o.cond === 'zonsondergang' ? 'zonsondergang' : 'zonsopkomst';
+  const whenLabel = o.cond === 'melkweg' ? `kern zichtbaar ${fmtTime(o.mw.start)}–${fmtTime(o.mw.end)}` : o.cond === 'sterren' ? 'beste uur' : o.cond === 'zachtlicht' ? 'beste moment' : o.cond === 'zonsondergang' ? 'zonsondergang' : 'zonsopkomst';
   const reasons = o.reasons.slice(0, 5).map((r) => `<li class="${r.good ? 'good' : 'bad'}">${esc(r.text)}</li>`).join('');
   return `
   <article class="opp">
     <div class="score ${scoreClass(o.score)}"><div>${pct}<small>${scoreLabel(o.score)}</small></div></div>
     <div>
       <h3>${c.icon} ${c.label} · ${esc(loc.name)}</h3>
-      <p class="when"><strong>${fmtDay(o.time)} ${fmtTime(o.time)}</strong> <span class="muted">(${whenLabel}${o.azimuth != null ? `, zon ${Math.round(o.azimuth)}° ${compassLabel(o.azimuth)}` : ''})</span></p>
+      <p class="when"><strong>${fmtDay(o.time)} ${fmtTime(o.time)}</strong> <span class="muted">(${whenLabel}${o.azimuth != null ? `, ${o.cond === 'melkweg' ? 'kern' : 'zon'} ${Math.round(o.azimuth)}° ${compassLabel(o.azimuth)}` : ''})</span></p>
       <p class="meta">${dist ? `${formatKm(dist.km)} · ±${formatMinutes(dist.min)} rijden · <strong>vertrek ${fmtTime(depart)}</strong>` : 'Afstand onbekend (stel je thuislocatie in)'}</p>
       <ul class="reasons">${reasons}</ul>
       <div class="actions">
@@ -363,11 +366,13 @@ function drawSunLines() {
   const km = lineLengthKm();
   const ok = (d) => d instanceof Date && !isNaN(d);
 
+  const mw = milkyWayWindow(dayNoon(date), loc, globalThis.SunCalc);
   const lines = [
     { icon: '🌅', label: 'Zonsopkomst', time: t.sunrise, az: info.sunriseAz, color: '#ffd23f', at: 1 },
     { icon: '🌇', label: 'Zonsondergang', time: t.sunset, az: info.sunsetAz, color: '#ff7b39', at: 1 },
     { icon: '🌕', label: 'Maanopkomst', time: info.moonrise, az: info.moonriseAz, color: '#a9d1ff', dash: '10 7', at: 0.72 },
     { icon: '🌑', label: 'Maanondergang', time: info.moonset, az: info.moonsetAz, color: '#8b8cf0', dash: '10 7', at: 0.72 },
+    { icon: '🌌', label: 'Melkwegkern (hoogste stand)', time: mw ? new Date(mw.best) : null, az: mw?.bestAz ?? null, color: '#e58cff', dash: '2 7', at: 0.5 },
   ];
   for (const l of lines) {
     if (l.az == null || !ok(l.time)) continue;
@@ -394,10 +399,19 @@ function drawSunLines() {
       <input type="date" id="sun-date" value="${iso}" aria-label="Datum voor zon en maan">
       <button id="sun-close" class="link" aria-label="Lijnen verbergen">✕</button></div>
     <div class="sun-grid">${lines.map(cell).join('')}</div>
-    <div class="small muted">🌙 ${moonPhaseName(info.moonPhase)} (${Math.round(info.moonFraction * 100)}%)${hasDir ? ` · 🎯 kijkrichting ${Math.round(loc.direction)}°` : ''}</div>`;
+    <div class="small muted">🌙 ${moonPhaseName(info.moonPhase)} (${Math.round(info.moonFraction * 100)}%)${hasDir ? ` · 🎯 kijkrichting ${Math.round(loc.direction)}°` : ''}</div>
+    <div class="small muted">${mwText(mw)}</div>`;
   legend.hidden = false;
   $('#sun-date').onchange = (e) => showSunLines(loc, e.target.value);
   $('#sun-close').onclick = () => showSunLines(null);
+}
+
+/** Leesbare samenvatting van het melkwegvenster. */
+function mwText(mw, short = false) {
+  if (!mw) return short ? 'niet zichtbaar (kern onder de horizon tijdens het donker; seizoen ±maart–september)' : '🌌 Melkwegkern niet zichtbaar deze nacht (seizoen ±maart–september)';
+  const moon = mw.moonUp ? ` · maan op (${Math.round(mw.moonFraction * 100)}%)` : ' · geen maan';
+  const body = `${fmtTime(mw.start)}–${fmtTime(mw.end)}, hoogst ${Math.round(mw.bestAlt)}° om ${fmtTime(mw.best)} richting ${Math.round(mw.bestAz)}° ${compassLabel(mw.bestAz)} (van ${compassLabel(mw.startAz)} naar ${compassLabel(mw.endAz)})${moon}`;
+  return short ? body : `🌌 Melkwegkern ${body}`;
 }
 
 function setHint(text) {
@@ -411,11 +425,22 @@ function setAddMode(on) {
   $('#btn-add-mode').classList.toggle('on', on);
 }
 
-// ---------- Weerkaart België ----------
-let wxLayer = null;
-let wxData = null;
-let wxCells = null;
-let wxOn = false;
+// ---------- Weerkaart België: live radar + vloeiende verwachting ----------
+const wx = {
+  on: false,
+  mode: 'radar', // 'radar' | 'verwachting'
+  playing: false,
+  timer: null,
+  // verwachting
+  grid: null,
+  data: null,
+  overlay: null,
+  border: null,
+  // radar
+  radar: null, // { host, frames, fetched }
+  radarLayers: [],
+  radarGroup: null,
+};
 
 function wxIndexToTime(i) {
   const base = new Date();
@@ -423,47 +448,129 @@ function wxIndexToTime(i) {
   return base.getTime() + i * 3600000;
 }
 
-async function toggleWeather(on = !wxOn) {
-  wxOn = on;
+async function toggleWeather(on = !wx.on) {
+  wx.on = on;
   $('#btn-weather').setAttribute('aria-pressed', String(on));
   $('#wx-panel').hidden = !on;
-  if (!on) { wxLayer?.clearLayers(); return; }
+  if (!on) {
+    stopWxPlay();
+    clearWxLayers();
+    return;
+  }
   map.closePopup();
-  if (!wxLayer) wxLayer = L.layerGroup().addTo(map);
-  wxCells = wxCells || gridCells();
   const be = L.latLngBounds(BE_OUTLINE);
-  if (!map.getBounds().intersects(be) || map.getZoom() > 10) map.fitBounds(be, { padding: [10, 10] });
-  $('#wx-legend').innerHTML = Object.values(SKY_CLASSES).map((c) => `<span style="--c:${c.color}">${c.label}</span>`).join('');
-  if (!wxData || Date.now() - wxData.fetched > 3600000) {
+  map.fitBounds(be, { padding: [10, 10] });
+  await setWxMode(wx.mode);
+}
+
+function clearWxLayers() {
+  for (const k of ['overlay', 'border', 'radarGroup']) {
+    if (wx[k]) map.removeLayer(wx[k]);
+    wx[k] = null;
+  }
+  wx.radarLayers = [];
+}
+
+async function setWxMode(mode) {
+  wx.mode = mode;
+  stopWxPlay();
+  clearWxLayers();
+  $$('#wx-modes button').forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.mode === mode)));
+  wx.border = L.polyline(BE_OUTLINE, { color: '#ffffff', weight: 1.5, opacity: 0.7, interactive: false }).addTo(map);
+  const slider = $('#wx-slider');
+  if (mode === 'radar') {
+    $('#wx-legend').innerHTML = `<span class="grad grad-radar"></span><span class="muted">licht → zware neerslag</span>`;
+    $('#wx-source').innerHTML = 'Radar: <a href="https://www.rainviewer.com" target="_blank" rel="noopener">RainViewer</a>, laatste ±2 uur';
     $('#wx-time').textContent = 'laden…';
     try {
-      wxData = await getGridForecast(wxCells);
+      if (!wx.radar || Date.now() - wx.radar.fetched > 5 * 60000) wx.radar = { ...(await fetchRadarFrames()), fetched: Date.now() };
     } catch (e) {
       $('#wx-time').textContent = 'mislukt';
-      toast('Weerkaart laden mislukt: ' + e.message);
+      toast('Radar laden mislukt: ' + e.message);
       return;
     }
+    if (!wx.on || wx.mode !== 'radar') return;
+    const frames = wx.radar.frames;
+    if (!frames.length) { $('#wx-time').textContent = 'geen beelden'; return; }
+    wx.radarGroup = L.layerGroup().addTo(map);
+    wx.radarLayers = frames.map((f) => L.tileLayer(radarTileUrl(wx.radar.host, f.path), {
+      opacity: 0, maxNativeZoom: 7, maxZoom: 19, zIndex: 20, attribution: 'Radar © RainViewer',
+    }).addTo(wx.radarGroup));
+    slider.max = String(frames.length - 1);
+    const lastPast = frames.map((f) => f.forecast).lastIndexOf(false);
+    slider.value = String(lastPast >= 0 ? lastPast : frames.length - 1);
+    renderWeather();
+    startWxPlay();
+  } else {
+    $('#wx-legend').innerHTML = `<span class="grad grad-cloud"></span><span class="muted">helder → bewolkt</span>
+      <span class="grad grad-rain"></span><span class="muted">neerslag</span>`;
+    $('#wx-source').innerHTML = 'Verwachting per uur: <a href="https://open-meteo.com" target="_blank" rel="noopener">Open-Meteo</a>, 48 uur';
+    slider.max = '47';
+    slider.value = '0';
+    wx.grid = wx.grid || gridRect();
+    if (!wx.data || Date.now() - wx.data.fetched > 3600000) {
+      $('#wx-time').textContent = 'laden…';
+      try {
+        wx.data = await getGridForecast(wx.grid.points);
+      } catch (e) {
+        $('#wx-time').textContent = 'mislukt';
+        toast('Verwachting laden mislukt: ' + e.message);
+        return;
+      }
+    }
+    if (!wx.on || wx.mode !== 'verwachting') return;
+    renderWeather();
   }
-  renderWeather();
 }
 
 function renderWeather() {
-  if (!wxOn || !wxData) return;
-  const target = wxIndexToTime(Number($('#wx-slider').value));
-  let idx = wxData.t.findIndex((t) => t >= target);
-  if (idx < 0) idx = wxData.t.length - 1;
-  const t = wxData.t[idx];
+  if (!wx.on) return;
+  const i = Number($('#wx-slider').value);
+  if (wx.mode === 'radar') {
+    if (!wx.radar?.frames.length || !wx.radarLayers.length) return;
+    wx.radarLayers.forEach((l, k) => l.setOpacity(k === i ? 0.8 : 0));
+    const f = wx.radar.frames[i];
+    const ago = Math.round((Date.now() - f.time) / 60000);
+    $('#wx-time').textContent = `${fmtTime(f.time)} ${f.forecast ? '(vooruitblik)' : ago <= 10 ? '(nu)' : `(−${ago} min)`}`;
+    return;
+  }
+  if (!wx.data) return;
+  const target = wxIndexToTime(i);
+  let idx = wx.data.t.findIndex((t) => t >= target);
+  if (idx < 0) idx = wx.data.t.length - 1;
+  const t = wx.data.t[idx];
   $('#wx-time').textContent = `${fmtDay(t)} ${fmtTime(t)}`;
-  wxLayer.clearLayers();
-  wxCells.forEach((c, i) => {
-    const d = wxData.cells[i];
-    if (!d) return;
-    const cls = classifySky(d.cc[idx], d.pr[idx], d.wc?.[idx]);
-    L.rectangle([[c.south, c.west], [c.north, c.east]], {
-      stroke: false, fillColor: SKY_CLASSES[cls].color, fillOpacity: 0.5, interactive: false,
-    }).addTo(wxLayer);
-  });
-  L.polyline(BE_OUTLINE, { color: '#ffffff', weight: 1.5, opacity: 0.8, interactive: false }).addTo(wxLayer);
+  const { url, bounds } = renderField(wx.grid, wx.data.cells, idx, BE_OUTLINE);
+  if (wx.overlay) wx.overlay.setUrl(url);
+  else wx.overlay = L.imageOverlay(url, bounds, { opacity: 1, interactive: false, className: 'wx-field' }).addTo(map);
+}
+
+function startWxPlay() {
+  stopWxPlay();
+  wx.playing = true;
+  $('#wx-play').textContent = '⏸';
+  $('#wx-play').setAttribute('aria-label', 'Pauzeren');
+  const slider = $('#wx-slider');
+  let hold = 0;
+  wx.timer = setInterval(() => {
+    const max = Number(slider.max);
+    let v = Number(slider.value);
+    if (v >= max) {
+      if (hold++ < 2) return; // even blijven staan op het laatste beeld
+      hold = 0;
+      v = -1;
+    }
+    slider.value = String(v + 1);
+    renderWeather();
+  }, wx.mode === 'radar' ? 550 : 700);
+}
+
+function stopWxPlay() {
+  clearInterval(wx.timer);
+  wx.timer = null;
+  wx.playing = false;
+  const b = $('#wx-play');
+  if (b) { b.textContent = '▶'; b.setAttribute('aria-label', 'Afspelen'); }
 }
 
 // ---------- Adres zoeken ----------
@@ -758,6 +865,7 @@ function renderPlanner(loc) {
     <tr><td>🌇 Zonsondergang</td><td>${tm(t.sunset)} · ${info.sunsetAz != null ? Math.round(info.sunsetAz) + '° ' + compassLabel(info.sunsetAz) : ''}${align(info.sunsetAz)}</td></tr>
     <tr><td>🔵 Blauw uur avond</td><td>${tm(t.sunset)} – ${tm(t.dusk)}</td></tr>
     <tr><td>🌌 Volledig donker vanaf</td><td>${tm(t.night)}</td></tr>
+    <tr><td>🌌 Melkwegkern</td><td>${mwText(milkyWayWindow(noon, loc, globalThis.SunCalc), true)}</td></tr>
     <tr><td>🌙 Maan</td><td>${moonPhaseName(info.moonPhase)} (${Math.round(info.moonFraction * 100)}%) · op ${tm(info.moonrise)} · onder ${tm(info.moonset)}</td></tr>
   </table>`;
 
@@ -909,7 +1017,9 @@ function bind() {
     else lightLayer.addTo(map);
   };
   $('#wx-close').onclick = () => toggleWeather(false);
-  $('#wx-slider').oninput = renderWeather;
+  $('#wx-slider').oninput = () => { stopWxPlay(); renderWeather(); };
+  $('#wx-play').onclick = () => (wx.playing ? stopWxPlay() : startWxPlay());
+  $$('#wx-modes button').forEach((b) => (b.onclick = () => setWxMode(b.dataset.mode)));
   $('#btn-locate').onclick = async () => {
     const p = await locateMe();
     if (p) { map.setView([p.lat, p.lon], 13); renderAll(); }

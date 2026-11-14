@@ -64,3 +64,20 @@ test('Commons-antwoord omzetten', async () => {
   assert.equal(r[0].artist, 'Jan');
   assert.equal(r[0].title, 'Kluisbos mist');
 });
+
+test('radarindex en weerkleuren', async () => {
+  const { parseRadarIndex, radarTileUrl } = await import('../js/radar.js');
+  const { pixelColor } = await import('../js/wxrender.js');
+  const { gridRect } = await import('../js/belgium.js');
+  const r = parseRadarIndex({ host: 'https://h', radar: { past: [{ time: 100, path: '/v2/radar/100' }], nowcast: [{ time: 200, path: '/v2/radar/n200' }] } });
+  assert.equal(r.frames.length, 2);
+  assert.equal(r.frames[1].forecast, true);
+  assert.equal(radarTileUrl(r.host, r.frames[0].path), 'https://h/v2/radar/100/256/{z}/{x}/{y}/2/1_1.png');
+  assert.equal(parseRadarIndex({}).frames.length, 0);
+  assert.equal(pixelColor(0, 0)[3], 0, 'helder = doorzichtig');
+  assert.ok(pixelColor(100, 0)[3] > 150, 'bewolkt = dekkend grijs');
+  assert.ok(pixelColor(50, 2)[2] > 200 && pixelColor(50, 2)[0] < 100, 'neerslag = blauw');
+  const g = gridRect();
+  assert.equal(g.points.length, g.lats.length * g.lons.length);
+  assert.ok(g.points.length < 400);
+});

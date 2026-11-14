@@ -61,10 +61,20 @@
       <div class="map-panels">
         <div id="map-hint" class="panel" hidden><span id="map-hint-text">Tik op de kaart om de locatie te plaatsen</span> <button id="btn-cancel-add" class="link">Annuleer</button></div>
         <div id="wx-panel" class="panel" hidden>
-          <div class="panel-head"><strong>Weer in België</strong> <span id="wx-time" class="muted"></span>
-            <button id="wx-close" class="link" aria-label="Weerkaart sluiten">✕</button></div>
-          <input id="wx-slider" type="range" min="0" max="47" value="0" aria-label="Tijdstip weerkaart">
+          <div class="panel-head">
+            <div class="seg" id="wx-modes" role="group" aria-label="Soort weerkaart">
+              <button data-mode="radar" aria-pressed="true">📡 Radar live</button>
+              <button data-mode="verwachting" aria-pressed="false">☁️ Verwachting</button>
+            </div>
+            <button id="wx-close" class="link" aria-label="Weerkaart sluiten">✕</button>
+          </div>
+          <div class="wx-time-row">
+            <button id="wx-play" class="play" aria-label="Afspelen">▶</button>
+            <input id="wx-slider" type="range" min="0" max="47" value="0" aria-label="Tijdstip weerkaart">
+            <span id="wx-time" class="wx-time"></span>
+          </div>
           <div id="wx-legend" class="wx-legend"></div>
+          <div id="wx-source" class="small muted"></div>
         </div>
         <div id="discover-panel" class="panel small" hidden>
           <div class="panel-head"><strong>🖼️ Ontdek</strong> <span id="discover-status" class="muted"></span>
@@ -130,7 +140,7 @@
       </div>
       <div class="card">
         <h2>Over</h2>
-        <p class="muted small">Weer: <a href="https://open-meteo.com" target="_blank" rel="noopener">Open-Meteo</a> (CC BY 4.0). Zon &amp; maan: SunCalc. Ontdek-foto's: Wikimedia Commons (licentie per foto). Kaart: © OpenStreetMap-bijdragers, satelliet © Esri, lichtvervuiling © NASA Black Marble (VIIRS). Scores zijn een inschatting op basis van de verwachting — geen garantie.</p>
+        <p class="muted small">Weer: <a href="https://open-meteo.com" target="_blank" rel="noopener">Open-Meteo</a> (CC BY 4.0), radar: <a href="https://www.rainviewer.com" target="_blank" rel="noopener">RainViewer</a>. Zon &amp; maan: SunCalc. Ontdek-foto's: Wikimedia Commons (licentie per foto). Kaart: © OpenStreetMap-bijdragers, satelliet © Esri, lichtvervuiling © NASA Black Marble (VIIRS). Scores zijn een inschatting op basis van de verwachting — geen garantie.</p>
         <button id="btn-clear-cache">Weercache wissen</button>
       </div>
     </section>

@@ -2,7 +2,8 @@
 
 import { scoreFog, scoreSky, scoreStars, scoreSoftLight } from './scoring.js';
 import { hourAt, hoursBetween } from './weather.js';
-import { sunCalcAzimuthToCompass, angleDiff } from './geo.js';
+import { sunCalcAzimuthToCompass, angleDiff, compassLabel } from './geo.js';
+import { milkyWayWindow } from './astro.js';
 
 const SC = () => globalThis.SunCalc;
 const valid = (d) => d instanceof Date && !Number.isNaN(d.getTime());
@@ -125,6 +126,26 @@ export function opportunitiesForDay(loc, hours, noon) {
         const res = scoreStars(nightHours);
         if (partial) res.reasons.push({ text: 'Geen astronomische nacht (zomer): hemel nooit helemaal donker', good: false });
         push('sterren', res.best.t, res, { hour: res.best, nightStart: start.getTime(), nightEnd: end.getTime() });
+      }
+    }
+  }
+
+  if (tags.has('melkweg')) {
+    const mw = milkyWayWindow(noon, loc, SC());
+    if (mw) {
+      // Uren in het venster (ruim genomen, zodat er altijd minstens één weeruur is).
+      const nightHours = hoursBetween(hours, mw.start - 30 * 60000, mw.end + 30 * 60000).map((h) => {
+        const d = new Date(h.t);
+        return { ...h, moonUp: SC().getMoonPosition(d, loc.lat, loc.lon).altitude > 0, moonFraction: SC().getMoonIllumination(d).fraction };
+      });
+      if (nightHours.length) {
+        const res = scoreStars(nightHours);
+        // Lage kern: nevel en lichtkoepels aan de horizon wegen zwaarder door.
+        res.score *= 0.55 + 0.45 * Math.min(1, mw.bestAlt / 10);
+        res.reasons.unshift({ text: `Kern max. ${Math.round(mw.bestAlt)}° hoog richting ${Math.round(mw.bestAz)}° ${compassLabel(mw.bestAz)}`, good: mw.bestAlt >= 6 });
+        if (mw.darkness === 'nautisch') res.reasons.push({ text: 'Geen volledig donkere nacht (zomer)', good: false });
+        applyAlignment(res, loc, mw.bestAz, 'Melkwegkern');
+        push('melkweg', mw.best, res, { hour: res.best, azimuth: mw.bestAz, arriveBy: mw.start - 30 * 60000, mw });
       }
     }
   }

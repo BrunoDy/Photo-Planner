@@ -44,3 +44,14 @@ export function gridCells(dLat = 0.15, dLon = 0.22) {
   }
   return cells;
 }
+
+/** Rechthoekig raster over (en net rond) België, rij voor rij van zuid naar noord. */
+export function gridRect(dLat = 0.15, dLon = 0.2) {
+  const lats = [];
+  const lons = [];
+  for (let lat = 49.4; lat <= 51.62; lat += dLat) lats.push(+lat.toFixed(3));
+  for (let lon = 2.45; lon <= 6.5; lon += dLon) lons.push(+lon.toFixed(3));
+  const points = [];
+  for (const lat of lats) for (const lon of lons) points.push({ lat, lon });
+  return { lats, lons, dLat, dLon, points };
+}
