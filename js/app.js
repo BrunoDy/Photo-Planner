@@ -2,6 +2,9 @@ import * as store from './store.js';
 import { CONDITIONS, scoreLabel } from './scoring.js';
 import { getForecasts, forecastFor, clearWeatherCache, getGridForecast, classifySky, SKY_CLASSES } from './weather.js';
 import { BE_OUTLINE, gridCells } from './belgium.js';
+import { parseLocationText, searchQueryFromText } from './linkparse.js';
+import { putPhoto, deletePhoto, allPhotos, resizeImage } from './photos.js';
+import { photosNear } from './commons.js';
 import { allOpportunities, opportunitiesForDay, sunInfo, moonPhaseName, dayNoon, ALIGN_TOLERANCE } from './planner.js';
 import { distanceKm, travelMinutes, formatKm, formatMinutes, compassLabel, destination, angleDiff } from './geo.js';
 
@@ -18,7 +21,21 @@ const state = {
   pickHome: false,
   addMode: false,
   pendingFocus: null,
+  photos: {}, // eigen foto's: { locatieId: dataUrl }
+  pendingPhoto: undefined, // undefined = ongewijzigd, string = nieuwe foto, null = verwijderen
+  collFilter: '',
+  statusFilter: '',
+  favOnly: false,
 };
+
+/** Fotobron voor een locatie: eigen foto (IndexedDB) of link (bv. Commons). */
+function photoSrc(l) {
+  if (!l?.photo) return null;
+  return l.photo === 'own' ? state.photos[l.id] || null : l.photo;
+}
+function splitCollections(v) {
+  return [...new Set(String(v || '').split(',').map((x) => x.trim()).filter(Boolean))];
+}
 
 const $ = (s, el = document) => el.querySelector(s);
 const $$ = (s, el = document) => [...el.querySelectorAll(s)];
@@ -166,30 +183,48 @@ function renderTagChips() {
   $('#tag-chips').innerHTML = items.map(([k, l]) => `<button class="chip ${state.tagFilter === k ? 'on' : ''}" data-tag="${k}">${l}</button>`).join('');
 }
 
+function renderLibFilters() {
+  const colls = store.allCollections(state.locations);
+  if (state.collFilter && !colls.includes(state.collFilter)) state.collFilter = '';
+  $('#coll-filter').innerHTML = `<option value="">Alle collecties</option>` +
+    colls.map((c) => `<option value="${esc(c)}" ${c === state.collFilter ? 'selected' : ''}>📁 ${esc(c)}</option>`).join('');
+  $('#status-filter').value = state.statusFilter;
+  $('#fav-filter').setAttribute('aria-pressed', String(state.favOnly));
+}
+
 function renderLocations() {
+  renderLibFilters();
   const q = $('#loc-search').value.trim().toLowerCase();
   let locs = state.locations.filter((l) => {
-    if (q && !(`${l.name} ${l.notes || ''}`.toLowerCase().includes(q))) return false;
+    if (q && !(`${l.name} ${l.notes || ''} ${(l.collections || []).join(' ')}`.toLowerCase().includes(q))) return false;
+    if (state.collFilter && !(l.collections || []).includes(state.collFilter)) return false;
+    if (state.statusFilter && (l.status || '') !== state.statusFilter) return false;
+    if (state.favOnly && !l.favorite) return false;
     if (state.tagFilter === 'none') return !(l.tags || []).length;
     if (state.tagFilter !== 'all') return (l.tags || []).includes(state.tagFilter);
     return true;
   }).map((l) => ({ l, d: distanceTo(l), best: bestOppFor(l.id) }));
-  locs.sort((a, b) => (a.d && b.d ? a.d.km - b.d.km : a.l.name.localeCompare(b.l.name)));
+  locs.sort((a, b) => (b.l.favorite ? 1 : 0) - (a.l.favorite ? 1 : 0) || (a.d && b.d ? a.d.km - b.d.km : a.l.name.localeCompare(b.l.name)));
   const list = $('#loc-list');
   if (!state.locations.length) {
-    list.innerHTML = `<div class="empty"><h3>Nog geen locaties</h3><p>Tik op <strong>＋ Nieuw</strong> om je huidige positie op te slaan, of gebruik de kaart.</p></div>`;
+    list.innerHTML = `<div class="empty"><h3>Je bibliotheek is nog leeg</h3><p>Tik op <strong>＋ Nieuw</strong> om je huidige positie op te slaan, op <strong>📋 Plak link</strong> om een plek van een andere site over te nemen, of ontdek foto's op de kaart (🖼️).</p></div>`;
     return;
   }
-  list.innerHTML = locs.map(({ l, d, best }) => `
+  const statusBadge = { wil: '🎯 Wil ik bezoeken', bezocht: '✅ Bezocht' };
+  list.innerHTML = locs.map(({ l, d, best }) => {
+    const src = photoSrc(l);
+    return `
     <div class="loc" data-open="${l.id}" role="button" tabindex="0">
-      <span class="dot" style="background:${best ? scoreColor(best.score) : 'var(--s-low)'}"></span>
+      ${src ? `<img class="thumb" src="${esc(src)}" alt="" loading="lazy">` : `<span class="dot" style="background:${best ? scoreColor(best.score) : 'var(--s-low)'}"></span>`}
       <div class="body">
-        <div class="name">${esc(l.name)}</div>
+        <div class="name">${l.favorite ? '⭐ ' : ''}${esc(l.name)}</div>
         <div class="tags">${(l.tags || []).map((t) => CONDITIONS[t]?.icon + ' ' + CONDITIONS[t]?.label).join(' · ') || 'Geen labels'}</div>
+        <div class="badges">${l.status ? `<span class="badge">${statusBadge[l.status]}</span>` : ''}${(l.collections || []).map((c) => `<span class="badge">📁 ${esc(c)}</span>`).join('')}</div>
         ${best ? `<div class="small muted">Beste kans: ${CONDITIONS[best.cond].label} ${fmtDay(best.time).toLowerCase()} ${fmtTime(best.time)} (${Math.round(best.score * 100)})</div>` : ''}
       </div>
       <div class="dist">${d ? `${formatKm(d.km)}<br><span class="small">±${formatMinutes(d.min)}</span>` : ''}</div>
-    </div>`).join('') || `<div class="empty">Geen locaties gevonden.</div>`;
+    </div>`;
+  }).join('') || `<div class="empty">Geen locaties gevonden met deze filters.</div>`;
 }
 
 // ---------- Kaart ----------
@@ -251,6 +286,7 @@ function initMap() {
   });
   // Lang indrukken (contextmenu) voegt meteen een locatie toe.
   map.on('zoomend', () => sunCtx && drawSunLines());
+  map.on('moveend', scheduleDiscover);
   map.on('contextmenu', (e) => openLocation({ name: '', lat: e.latlng.lat, lon: e.latlng.lng, tags: [], notes: '', direction: null }));
   renderMarkers();
   if (!state.pendingFocus) fitAll();
@@ -273,7 +309,8 @@ function renderMarkers() {
     const d = distanceTo(l);
     m.bindPopup(() => {
       const div = document.createElement('div');
-      div.innerHTML = `<strong>${esc(l.name)}</strong><br>
+      const src = photoSrc(l);
+      div.innerHTML = `${src ? `<img class="popup-img" src="${esc(src)}" alt="">` : ''}<strong>${l.favorite ? '⭐ ' : ''}${esc(l.name)}</strong><br>
         <span class="muted">${(l.tags || []).map((t) => CONDITIONS[t]?.icon).join(' ')} ${d ? formatKm(d.km) : ''}</span>
         ${best ? `<br>Beste: ${CONDITIONS[best.cond].label} ${fmtDay(best.time).toLowerCase()} ${fmtTime(best.time)} — <strong>${Math.round(best.score * 100)}</strong>` : ''}
         <br><button class="primary">Openen</button>`;
@@ -465,6 +502,129 @@ function searchPlace(q) {
   });
 }
 
+// ---------- Ontdek: foto's van Wikimedia Commons ----------
+let discoverLayer = null;
+let discoverOn = false;
+let discoverTimer = null;
+let discoverSeq = 0;
+const discoverCache = new Map();
+
+function toggleDiscover(on = !discoverOn) {
+  discoverOn = on;
+  $('#btn-discover').setAttribute('aria-pressed', String(on));
+  $('#discover-panel').hidden = !on;
+  if (!discoverLayer) discoverLayer = L.layerGroup().addTo(map);
+  if (!on) { discoverLayer.clearLayers(); return; }
+  map.closePopup();
+  if (map.getZoom() < 12) map.setZoom(13); // moveend laadt dan de foto's
+  else loadDiscover();
+}
+
+function scheduleDiscover() {
+  if (!discoverOn) return;
+  clearTimeout(discoverTimer);
+  discoverTimer = setTimeout(loadDiscover, 600);
+}
+
+async function loadDiscover() {
+  const status = $('#discover-status');
+  if (map.getZoom() < 11) {
+    discoverLayer.clearLayers();
+    status.textContent = 'zoom verder in';
+    return;
+  }
+  const c = map.getCenter();
+  const b = map.getBounds();
+  const radius = Math.min(10000, map.distance(c, b.getNorthEast()));
+  const key = `${c.lat.toFixed(2)},${c.lng.toFixed(2)},${Math.round(radius / 1000)}`;
+  const seq = ++discoverSeq;
+  status.textContent = 'laden…';
+  try {
+    let photos = discoverCache.get(key);
+    if (!photos) {
+      photos = await photosNear(c.lat, c.lng, radius);
+      discoverCache.set(key, photos);
+    }
+    if (seq !== discoverSeq || !discoverOn) return;
+    renderDiscover(photos);
+    status.textContent = photos.length ? `${photos.length} foto's` : 'geen foto\'s hier';
+  } catch (e) {
+    if (seq === discoverSeq) status.textContent = 'laden mislukt';
+  }
+}
+
+function renderDiscover(photos) {
+  discoverLayer.clearLayers();
+  for (const p of photos) {
+    const m = L.marker([p.lat, p.lon], {
+      icon: L.divIcon({ className: '', html: `<img class="cm-thumb" src="${esc(p.thumb)}" alt="" loading="lazy">`, iconSize: [38, 38], iconAnchor: [19, 19] }),
+      title: p.title,
+    }).addTo(discoverLayer);
+    m.bindPopup(() => {
+      const div = document.createElement('div');
+      div.innerHTML = `<img class="popup-img" src="${esc(p.thumb)}" alt="">
+        <strong>${esc(p.title)}</strong><br>
+        <span class="muted small">Foto: ${esc(p.artist)}${p.license ? ` · ${esc(p.license)}` : ''} · <a href="${esc(p.page)}" target="_blank" rel="noopener">Commons</a></span><br>
+        <button class="primary">＋ Bewaar in bibliotheek</button>`;
+      div.querySelector('button').onclick = () => {
+        map.closePopup();
+        openLocation({
+          name: p.title, lat: p.lat, lon: p.lon, tags: [], notes: p.description || '', direction: null,
+          collections: ['Ontdekt'], status: 'wil', favorite: false, sourceUrl: p.page,
+          photo: p.thumb, photoCredit: `Foto: ${p.artist}${p.license ? ` (${p.license})` : ''}, Wikimedia Commons`,
+        });
+      };
+      return div;
+    }, { maxWidth: 240 });
+  }
+}
+
+// ---------- Locatie overnemen (plakken / delen) ----------
+const pasteDlg = () => $('#paste-dialog');
+
+function openPaste(text = '') {
+  $('#paste-text').value = text;
+  $('#paste-results').hidden = true;
+  if (!pasteDlg().open) pasteDlg().showModal();
+  if (text) recognizePaste();
+}
+
+function newLocFrom(r, extra = {}) {
+  return { name: r.name || '', lat: r.lat, lon: r.lon, tags: [], notes: '', direction: null, collections: [], status: 'wil', favorite: false, sourceUrl: r.url || '', ...extra };
+}
+
+async function recognizePaste() {
+  const text = $('#paste-text').value.trim();
+  if (!text) { toast('Plak eerst een link, coördinaten of een adres'); return; }
+  const r = parseLocationText(text);
+  if (Number.isFinite(r.lat)) {
+    pasteDlg().close();
+    openLocation(newLocFrom(r));
+    toast('Locatie herkend — vul aan en sla op');
+    return;
+  }
+  const q = searchQueryFromText(text) || r.name;
+  if (!q) {
+    $('#paste-results').hidden = false;
+    $('#paste-results').innerHTML = `<div class="muted small" style="padding:10px">Geen locatie gevonden. ${/goo\.gl|maps\.app/.test(text) ? 'Korte Google-links bevatten geen coördinaten: open de link, en kopieer de lange link of de coördinaten.' : 'Probeer de coördinaten te kopiëren.'}</div>`;
+    return;
+  }
+  showGeocodeResults(q, $('#paste-results'), (g) => {
+    pasteDlg().close();
+    openLocation(newLocFrom({ ...r, lat: +g.lat, lon: +g.lon, name: r.name || g.display_name.split(',')[0] }));
+    toast('Controleer de positie op de kaart — zoekresultaten zijn bij benadering');
+  });
+}
+
+/** Verwerkt een gedeelde link (Android: "Delen → Fotospot Planner"). */
+function handleShareTarget() {
+  const p = new URLSearchParams(location.search);
+  if (!p.has('share') && !p.has('text') && !p.has('url')) return;
+  const text = [p.get('title'), p.get('text'), p.get('url')].filter(Boolean).join('\n');
+  history.replaceState(null, '', location.pathname);
+  if (text) { switchView('locaties'); openPaste(text); }
+}
+
 // ---------- Thuislocatie (eerste start) ----------
 const setupDlg = () => $('#setup-dialog');
 
@@ -499,6 +659,14 @@ function openLocation(loc, dateMs) {
   $('#form-tags').innerHTML = Object.entries(CONDITIONS).map(([k, c]) =>
     `<button type="button" class="chip ${(loc.tags || []).includes(k) ? 'on' : ''}" data-ftag="${k}" title="${esc(c.hint)}">${c.icon} ${c.label}</button>`).join('');
   $('#btn-delete').hidden = !loc.id;
+  f.status.value = loc.status || '';
+  f.collections.value = (loc.collections || []).join(', ');
+  f.sourceUrl.value = loc.sourceUrl || '';
+  setFavToggle(!!loc.favorite);
+  state.pendingPhoto = undefined;
+  renderPhotoBox();
+  renderCollChips();
+  updateSourceLink();
   const d = new Date(dateMs || Date.now());
   $('#plan-date').value = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
   updateDialogInfo();
@@ -515,7 +683,50 @@ function formLoc() {
     direction: f.direction.value === '' ? null : ((Number(f.direction.value) % 360) + 360) % 360,
     notes: f.notes.value.trim(),
     tags: $$('#form-tags .chip.on').map((b) => b.dataset.ftag),
+    status: f.status.value,
+    collections: splitCollections(f.collections.value),
+    favorite: !!state.editing.favorite,
+    sourceUrl: f.sourceUrl.value.trim(),
   };
+}
+
+function setFavToggle(on) {
+  state.editing.favorite = on;
+  const b = $('#fav-toggle');
+  b.setAttribute('aria-pressed', String(on));
+  b.textContent = on ? '⭐ Favoriet' : '☆ Favoriet';
+}
+
+function currentDialogPhoto() {
+  if (state.pendingPhoto === null) return null;
+  if (typeof state.pendingPhoto === 'string') return state.pendingPhoto;
+  return photoSrc(state.editing);
+}
+
+function renderPhotoBox() {
+  const src = currentDialogPhoto();
+  const img = $('#photo-img');
+  img.hidden = !src;
+  if (src) img.src = src; else img.removeAttribute('src');
+  const credit = state.pendingPhoto === undefined && state.editing.photo && state.editing.photo !== 'own' ? state.editing.photoCredit : '';
+  $('#photo-credit').hidden = !credit;
+  $('#photo-credit').textContent = credit || '';
+  $('#photo-remove').hidden = !src;
+}
+
+function renderCollChips() {
+  const current = splitCollections($('#loc-form').collections.value);
+  const all = store.allCollections(state.locations);
+  $('#coll-list').innerHTML = all.map((c) => `<option value="${esc(c)}">`).join('');
+  $('#coll-chips').innerHTML = all.filter((c) => !current.includes(c)).slice(0, 12)
+    .map((c) => `<button type="button" class="chip" data-addcoll="${esc(c)}">＋ ${esc(c)}</button>`).join('');
+}
+
+function updateSourceLink() {
+  const v = $('#loc-form').sourceUrl.value.trim();
+  const a = $('#source-open');
+  a.hidden = !/^https?:\/\//.test(v);
+  if (!a.hidden) a.href = v;
 }
 
 function updateDialogInfo() {
@@ -676,6 +887,23 @@ function bind() {
     }
   };
   $('#btn-weather').onclick = () => toggleWeather();
+  $('#btn-discover').onclick = () => toggleDiscover();
+  $('#discover-close').onclick = () => toggleDiscover(false);
+  $('#btn-paste').onclick = () => openPaste();
+  $('#paste-close').onclick = () => pasteDlg().close();
+  $('#paste-go').onclick = recognizePaste;
+  $('#paste-clip').onclick = async () => {
+    try {
+      $('#paste-text').value = await navigator.clipboard.readText();
+      recognizePaste();
+    } catch {
+      toast('Geen toegang tot klembord — plak handmatig (lang indrukken → Plakken)');
+      $('#paste-text').focus();
+    }
+  };
+  $('#coll-filter').onchange = (e) => { state.collFilter = e.target.value; renderLocations(); };
+  $('#status-filter').onchange = (e) => { state.statusFilter = e.target.value; renderLocations(); };
+  $('#fav-filter').onclick = () => { state.favOnly = !state.favOnly; renderLocations(); };
   $('#btn-light').onclick = () => {
     if (map.hasLayer(lightLayer)) map.removeLayer(lightLayer);
     else lightLayer.addTo(map);
@@ -712,6 +940,8 @@ function bind() {
     if (!state.editing?.id) return;
     if (!confirm(`"${state.editing.name}" verwijderen?`)) return;
     store.deleteLocation(state.editing.id);
+    deletePhoto(state.editing.id);
+    delete state.photos[state.editing.id];
     state.locations = store.getLocations();
     dlg().close();
     if (selectedLoc?.id === state.editing.id) showSunLines(null);
@@ -719,17 +949,48 @@ function bind() {
     renderAll();
     toast('Locatie verwijderd');
   };
-  f.onsubmit = (e) => {
+  f.onsubmit = async (e) => {
     e.preventDefault();
     const l = formLoc();
     if (!l.name) { f.name.focus(); return; }
     if (!Number.isFinite(l.lat) || !Number.isFinite(l.lon) || Math.abs(l.lat) > 90 || Math.abs(l.lon) > 180) { toast('Ongeldige coördinaten'); return; }
+    const pending = state.pendingPhoto;
+    if (typeof pending === 'string') l.photo = 'own';
+    else if (pending === null) { l.photo = ''; l.photoCredit = ''; }
     const saved = store.upsertLocation(l);
+    try {
+      if (typeof pending === 'string') { await putPhoto(saved.id, pending); state.photos[saved.id] = pending; }
+      else if (pending === null) { await deletePhoto(saved.id); delete state.photos[saved.id]; }
+    } catch {
+      toast('Foto bewaren mislukt (opslag vol?)');
+    }
+    state.pendingPhoto = undefined;
     state.locations = store.getLocations();
     dlg().close();
     toast(`"${saved.name}" opgeslagen`);
     refreshWeather();
   };
+  $('#fav-toggle').onclick = () => setFavToggle(!state.editing.favorite);
+  f.collections.addEventListener('input', renderCollChips);
+  f.sourceUrl.addEventListener('input', updateSourceLink);
+  $('#coll-chips').addEventListener('click', (e) => {
+    const c = e.target.closest('[data-addcoll]')?.dataset.addcoll;
+    if (!c) return;
+    f.collections.value = [...splitCollections(f.collections.value), c].join(', ');
+    renderCollChips();
+  });
+  $('#photo-input').onchange = async (e) => {
+    const file = e.target.files[0];
+    e.target.value = '';
+    if (!file) return;
+    try {
+      state.pendingPhoto = await resizeImage(file);
+      renderPhotoBox();
+    } catch (err) {
+      toast(err.message);
+    }
+  };
+  $('#photo-remove').onclick = () => { state.pendingPhoto = null; renderPhotoBox(); };
 
   // Instellingen
   $$('input[name="distfrom"]').forEach((r) => (r.onchange = async () => {
@@ -776,8 +1037,10 @@ function bind() {
   num('#set-detour', 'detour', 1, 2);
   num('#set-minscore', 'minScore', 0, 100);
 
-  $('#btn-export').onclick = () => {
-    const blob = new Blob([store.exportJson()], { type: 'application/json' });
+  $('#btn-export').onclick = async () => {
+    const ids = new Set(state.locations.filter((l) => l.photo === 'own').map((l) => l.id));
+    const photos = Object.fromEntries(Object.entries(await allPhotos().catch(() => ({}))).filter(([k]) => ids.has(k)));
+    const blob = new Blob([store.exportJson(photos)], { type: 'application/json' });
     const a = document.createElement('a');
     a.href = URL.createObjectURL(blob);
     a.download = `fotospots-${new Date().toISOString().slice(0, 10)}.json`;
@@ -789,7 +1052,11 @@ function bind() {
     if (!file) return;
     try {
       const incoming = store.parseImport(await file.text());
-      const added = store.mergeLocations(incoming);
+      const { added, photoData } = store.mergeLocations(incoming);
+      for (const [id, data] of photoData) {
+        await putPhoto(id, data).catch(() => {});
+        state.photos[id] = data;
+      }
       state.locations = store.getLocations();
       toast(`${added} locatie(s) geïmporteerd${incoming.length - added ? `, ${incoming.length - added} dubbel overgeslagen` : ''}`);
       fitAll();
@@ -810,6 +1077,8 @@ async function start() {
   try { initial = sessionStorage.getItem('psp.view') || 'kansen'; } catch { /* ignore */ }
   switchView(initial);
   if (!state.settings.home) openSetup();
+  handleShareTarget();
+  allPhotos().then((p) => { state.photos = p; renderLocations(); renderMarkers(); }).catch(() => {});
   if (state.settings.distanceFrom === 'gps') locateMe({ quiet: true }).then(() => renderAll());
   await refreshWeather();
   // Elk uur opnieuw scoren (cache bepaalt of er echt opgehaald wordt).

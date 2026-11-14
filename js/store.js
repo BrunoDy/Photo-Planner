@@ -58,8 +58,22 @@ export function saveSettings(s) {
 
 // ---------- Import / export ----------
 
-export function exportJson() {
-  return JSON.stringify({ app: 'PhotoSpotPlanner', version: 1, exported: new Date().toISOString(), locations: getLocations(), settings: getSettings() }, null, 2);
+export const STATUSES = {
+  '': 'Geen status',
+  wil: 'Wil ik bezoeken',
+  bezocht: 'Bezocht',
+};
+
+/** Alle collectienamen die in gebruik zijn, alfabetisch. */
+export function allCollections(list = getLocations()) {
+  const set = new Set();
+  for (const l of list) for (const c of l.collections || []) if (c) set.add(c);
+  return [...set].sort((a, b) => a.localeCompare(b, 'nl'));
+}
+
+/** Back-up als JSON; `photos` = { locatieId: dataUrl } voor eigen foto's. */
+export function exportJson(photos = {}) {
+  return JSON.stringify({ app: 'PhotoSpotPlanner', version: 2, exported: new Date().toISOString(), locations: getLocations(), settings: getSettings(), photos }, null, 2);
 }
 
 const num = (x) => (x == null || x === '' ? NaN : Number(x));
@@ -71,7 +85,9 @@ export function parseImport(text) {
   if (trimmed.startsWith('<')) return parseGpxOrKml(trimmed);
   const data = JSON.parse(trimmed);
   if (Array.isArray(data.locations)) {
-    return data.locations.filter((l) => okCoord(num(l.lat), num(l.lon)));
+    const photos = data.photos || {};
+    return data.locations.filter((l) => okCoord(num(l.lat), num(l.lon)))
+      .map((l) => (photos[l.id] ? { ...l, _photoData: photos[l.id] } : l));
   }
   if (data.type === 'FeatureCollection' || data.type === 'Feature') {
     const feats = data.type === 'Feature' ? [data] : data.features;
@@ -109,16 +125,23 @@ function parseGpxOrKml(xml) {
   return out.filter((l) => okCoord(l.lat, l.lon));
 }
 
-/** Voegt geïmporteerde locaties toe; dubbels (zelfde naam + ~50 m) worden overgeslagen. */
+/**
+ * Voegt geïmporteerde locaties toe; dubbels (zelfde naam + ~50 m) worden overgeslagen.
+ * @returns {{added: number, photoData: [string, string][]}} eigen foto's om nog in IndexedDB te bewaren
+ */
 export function mergeLocations(incoming) {
   const list = getLocations();
   let added = 0;
+  const photoData = [];
   for (const l of incoming) {
     const dup = list.some((e) => e.name === l.name && Math.abs(e.lat - l.lat) < 0.0005 && Math.abs(e.lon - l.lon) < 0.0005);
     if (dup) continue;
-    list.push({ tags: [], notes: '', direction: null, ...l, id: uid(), lat: Number(l.lat), lon: Number(l.lon), created: Date.now(), updated: Date.now() });
+    const { _photoData, ...rest } = l;
+    const loc = { tags: [], notes: '', direction: null, collections: [], status: '', favorite: false, ...rest, id: uid(), lat: Number(l.lat), lon: Number(l.lon), created: Date.now(), updated: Date.now() };
+    if (_photoData) { loc.photo = 'own'; photoData.push([loc.id, _photoData]); } else if (loc.photo === 'own') loc.photo = '';
+    list.push(loc);
     added++;
   }
   saveLocations(list);
-  return added;
+  return { added, photoData };
 }

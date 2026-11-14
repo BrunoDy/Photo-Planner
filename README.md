@@ -9,7 +9,12 @@ Eén overzicht voor landschapsfotografen. De app combineert:
 4. **Weer, zoals Clear Outside.** De app haalt per uur de verwachting op via Open-Meteo: dauwpunt, vochtigheid, wind, zicht en lage, middelhoge en hoge bewolking.
 5. **Weerkaart van België** (🌦️ op de kaart). Per uur, tot 2 dagen vooruit, zie je waar het helder, lichtbewolkt of zwaarbewolkt is en waar het regent.
 6. **Lichtvervuiling** (🌃 of via de lagenknop). Een laag met de nachtelijke lichtuitstoot (NASA VIIRS Black Marble), om donkere plekken voor sterrenfoto's te vinden.
-7. **De match.** Het tabblad **Kansen** zet elke gelabelde locatie tegenover het weer van de komende dagen. Een voorbeeld: *"Morgen 07:58 – Mist · Kluisbos – score 86 – vertrek 06:50"*.
+7. **Bibliotheek** (tabblad 📚). Per locatie bewaar je een voorbeeldfoto (eigen foto of van Commons), collecties (bv. "Ardennen", "Bucketlist"), een status (wil ik bezoeken / bezocht), een ⭐ favoriet en een bronlink. Je kunt filteren op collectie, status, favoriet en label.
+8. **Plekken overnemen van andere sites.**
+   - **📋 Plak link:** plak een link uit Google Maps, Apple Maps of OpenStreetMap, coördinaten (decimaal of 50°46'33"N 3°37'58"E), of een naam en adres. Op Locationscout en vergelijkbare sites kopieer je de kaartlink of de coördinaten van een spot.
+   - **Delen naar de app** (Android, als de app geïnstalleerd is): in Google Maps of de browser tik je op *Delen → Fotospot Planner*.
+   - **🖼️ Ontdek** op de kaart: foto's met locatie van Wikimedia Commons in de buurt. Tik op een foto → *Bewaar in bibliotheek*. De naam van de fotograaf en de licentie worden mee bewaard.
+9. **De match.** Het tabblad **Kansen** zet elke gelabelde locatie tegenover het weer van de komende dagen. Een voorbeeld: *"Morgen 07:58 – Mist · Kluisbos – score 86 – vertrek 06:50"*.
 
 ## Condities en hoe ze gescoord worden
 
@@ -37,7 +42,7 @@ Voor gebruik op je telefoon moet de app via **https** bereikbaar zijn (nodig voo
 - **Toevoegen:** tik op ＋ op de kaart en dan op de plek, of druk lang op de kaart. Je kunt ook "＋ Nieuw" gebruiken (huidige positie) of zoeken.
 - **Kijkrichting:** vul de graden in of tik op 🧭 *Meet* en richt je telefoon naar het onderwerp.
 - **Import:** eigen back-up (JSON), GeoJSON (Google Takeout → Maps → *Opgeslagen plaatsen*), GPX-waypoints, KML-placemarks.
-- **Back-up:** de locaties staan in de browser van je toestel. Exporteer ze geregeld via Instellingen.
+- **Back-up:** de locaties en eigen foto's staan in de browser van je toestel. Exporteer ze geregeld via Instellingen; de eigen foto's zitten mee in het back-upbestand.
 
 ## Structuur
 
@@ -49,6 +54,9 @@ js/planner.js         locatie × zon/maan × weer → kansen
 js/scoring.js         scoremodellen (puur, getest)
 js/weather.js         Open-Meteo ophalen + cache (1 u)
 js/belgium.js         omtrek België + weerraster
+js/linkparse.js       links/coördinaten herkennen
+js/commons.js         Wikimedia Commons (Ontdek)
+js/photos.js          eigen foto's (IndexedDB)
 js/geo.js             afstand, richting, reistijd
 js/store.js           opslag, import/export
 sw.js                 offline app-shell
