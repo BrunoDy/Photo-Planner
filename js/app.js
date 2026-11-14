@@ -217,6 +217,7 @@ function oppCard(o) {
 
 function renderOpps() {
   const list = $('#opp-list');
+  list.classList.remove('tiles');
   if (!allLocs().length) {
     list.innerHTML = `<div class="empty"><h3>Nog geen locaties</h3><p>Voeg je droomplekken toe via <strong>Kaart</strong> of <strong>Locaties</strong> en geef ze labels zoals <em>Mist</em> of <em>Zonsondergang</em>. Dan zie je hier wanneer het weer er perfect voor is.</p><button class="primary" data-goto="kaart">Naar de kaart</button></div>`;
     return;
@@ -238,6 +239,7 @@ function renderOpps() {
     list.innerHTML = `<div class="empty"><h3>Geen weergegevens</h3><p>Controleer je internetverbinding en tik op ⟳.</p></div>`;
     return;
   }
+  list.classList.toggle('tiles', items.length > 0);
   list.innerHTML = items.length
     ? items.map(oppCard).join('')
     : `<div class="empty"><h3>Geen goede kansen in deze periode</h3><p>Probeer een langere periode, een andere conditie of vink "Ook lage scores" aan.</p></div>`;

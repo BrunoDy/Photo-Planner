@@ -266,8 +266,8 @@ form.home-mode .only-home { display: block; }
 form.home-mode .not-home { display: none; }
 
 /* Kansen als tegels: 3 per rij op een telefoon, meer op brede schermen */
-#opp-list:has(.tile) { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
-@media (min-width: 640px) { #opp-list:has(.tile) { grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); } }
+#opp-list.tiles { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
+@media (min-width: 640px) { #opp-list.tiles { grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); } }
 .tile {
   display: flex; flex-direction: column; align-items: stretch; justify-content: flex-start; gap: 2px;
   min-height: 0; padding: 8px; text-align: left; border-radius: 12px; background: var(--surface);
@@ -282,5 +282,11 @@ form.home-mode .not-home { display: none; }
 .tile-when { font-weight: 600; color: var(--accent); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .tile-meta { color: var(--muted); font-size: .72rem; }
 .tile-meta b { color: var(--text); font-weight: 600; }
-#opp-list:not(:has(.tile)) + .tiles-hint { display: none; }
+#opp-list:not(.tiles) + .tiles-hint { display: none; }
 .tiles-hint { text-align: center; margin-top: 10px; }
+
+/* Brede schermen: inhoud niet over het hele scherm uitrekken (kaart blijft volledig) */
+@media (min-width: 900px) {
+  .view:not(#view-kaart) { padding-left: max(16px, calc((100% - 1000px) / 2)); padding-right: max(16px, calc((100% - 1000px) / 2)); }
+}
+@media (min-width: 900px) { #day-filter { flex: 0 1 280px; } }
