@@ -177,3 +177,32 @@ export function allOpportunities(locations, forecastLookup, { days = 3, now = ne
   }
   return res.sort((a, b) => b.score - a.score || a.time - b.time);
 }
+
+// ---------- Vooruitzicht per locatie ----------
+
+/** Drempel om een moment als "goede kans" te tonen. Mist: iets lager, want ook matige kans is nuttig. */
+export const NEXT_THRESHOLD = { mist: 0.5, default: 0.55 };
+const ALL_CONDS = ['mist', 'zonsopkomst', 'zonsondergang', 'sterren', 'melkweg', 'zachtlicht'];
+
+/**
+ * Per conditie: beste score per dag en het eerstvolgende goede moment,
+ * voor álle condities (ook zonder label), zodat je ziet wat er aankomt.
+ * @returns {{days: number[], conds: Record<string, {perDay: (object|null)[], next: object|null}>}}
+ */
+export function locationOutlook(loc, hours, { days = 7, now = new Date() } = {}) {
+  const all = { ...loc, tags: ALL_CONDS };
+  const dayList = [];
+  const conds = Object.fromEntries(ALL_CONDS.map((c) => [c, { perDay: [], next: null }]));
+  for (let d = 0; d < days; d++) {
+    const noon = dayNoon(now, d);
+    dayList.push(noon.getTime());
+    const opps = opportunitiesForDay(all, hours, noon);
+    for (const c of ALL_CONDS) {
+      const o = opps.find((x) => x.cond === c && x.time >= now.getTime() - HOUR) || null;
+      conds[c].perDay.push(o);
+      const thr = NEXT_THRESHOLD[c] ?? NEXT_THRESHOLD.default;
+      if (o && !conds[c].next && o.score >= thr) conds[c].next = o;
+    }
+  }
+  return { days: dayList, conds };
+}

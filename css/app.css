@@ -239,3 +239,21 @@ code { background: var(--surface-2); padding: 1px 4px; border-radius: 4px; }
 .grad-radar { background: linear-gradient(90deg, #9fd3ff, #3d8bfd, #1c3fc4, #a23bd6); }
 .grad-cloud { background: linear-gradient(90deg, transparent, #e8ecf2b8); border: 1px solid var(--border); }
 .grad-rain { width: 30px; background: linear-gradient(90deg, #6eafff, #2850c8); }
+
+/* Vooruitzicht */
+.now { font-size: .84rem; margin-top: 2px; }
+.fog { font-size: .84rem; margin-top: 2px; }
+.fog.good { color: var(--text); }
+.nexts { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 4px; }
+.next-chip { font-size: .76rem; padding: 2px 7px; border-radius: 999px; background: var(--surface-2); white-space: nowrap; }
+.next-chip b { color: var(--accent); }
+.outlook-scroll { overflow-x: auto; margin-top: 8px; }
+table.outlook { border-collapse: separate; border-spacing: 3px; font-size: .78rem; width: 100%; }
+table.outlook th { font-weight: 600; color: var(--muted); text-align: center; padding: 0 2px; }
+table.outlook th[scope="row"] { text-align: left; white-space: nowrap; color: var(--text); font-weight: 500; }
+table.outlook td { text-align: center; border-radius: 6px; padding: 5px 0; min-width: 28px; color: #0d1117; font-weight: 700; }
+table.outlook td.na { background: var(--surface); color: var(--muted); font-weight: 400; }
+@media (max-width: 420px) { table.outlook th[scope="row"] span { display: none; } }
+.next-list { list-style: none; padding: 0; margin: 6px 0; font-size: .88rem; display: grid; gap: 3px; }
+#outlook h4 { margin: 12px 0 0; font-size: .9rem; }
+table.outlook th.today { color: var(--accent); }

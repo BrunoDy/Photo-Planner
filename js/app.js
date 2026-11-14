@@ -1,6 +1,6 @@
 import * as store from './store.js';
 import { CONDITIONS, scoreLabel } from './scoring.js';
-import { getForecasts, forecastFor, clearWeatherCache, getGridForecast } from './weather.js';
+import { getForecasts, forecastFor, clearWeatherCache, getGridForecast, hourAt, classifySky } from './weather.js';
 import { fetchRadarFrames, radarTileUrl } from './radar.js';
 import { renderField } from './wxrender.js';
 import { BE_OUTLINE, gridRect } from './belgium.js';
@@ -8,7 +8,7 @@ import { parseLocationText, searchQueryFromText } from './linkparse.js';
 import { putPhoto, deletePhoto, allPhotos, resizeImage } from './photos.js';
 import { photosNear } from './commons.js';
 import { milkyWayWindow } from './astro.js';
-import { allOpportunities, opportunitiesForDay, sunInfo, moonPhaseName, dayNoon, ALIGN_TOLERANCE } from './planner.js';
+import { locationOutlook, allOpportunities, opportunitiesForDay, sunInfo, moonPhaseName, dayNoon, ALIGN_TOLERANCE } from './planner.js';
 import { distanceKm, travelMinutes, formatKm, formatMinutes, compassLabel, destination, angleDiff } from './geo.js';
 
 // ---------- Toestand ----------
@@ -24,6 +24,7 @@ const state = {
   pickHome: false,
   addMode: false,
   pendingFocus: null,
+  outlooks: new Map(), // locatieId → vooruitzicht 7 dagen (alle condities)
   photos: {}, // eigen foto's: { locatieId: dataUrl }
   pendingPhoto: undefined, // undefined = ongewijzigd, string = nieuwe foto, null = verwijderen
   collFilter: '',
@@ -98,8 +99,8 @@ function locateMe({ quiet = false } = {}) {
 
 // ---------- Weer & kansen ----------
 async function refreshWeather(force = false) {
-  const locs = state.locations.filter((l) => (l.tags || []).length);
-  if (!locs.length) { state.opps = []; renderAll(); return; }
+  const locs = state.locations;
+  if (!locs.length) { state.opps = []; state.outlooks = new Map(); renderAll(); return; }
   setStatus('Weer ophalen…');
   try {
     state.forecasts = await getForecasts(locs, { days: 7, force });
@@ -114,6 +115,51 @@ async function refreshWeather(force = false) {
 }
 function computeOpps() {
   state.opps = allOpportunities(state.locations, (l) => forecastFor(state.forecasts, l), { days: 7 });
+  state.outlooks = new Map();
+  for (const l of state.locations) {
+    const hours = forecastFor(state.forecasts, l);
+    if (hours?.length) state.outlooks.set(l.id, locationOutlook(l, hours, { days: 7 }));
+  }
+}
+
+const SKY_ICON = { helder: '☀️', licht: '⛅', zwaar: '☁️', neerslag: '🌧️' };
+const SKY_LABEL = { helder: 'Helder', licht: 'Lichtbewolkt', zwaar: 'Zwaarbewolkt', neerslag: 'Neerslag' };
+
+/** Het weer van nu op een locatie, als korte tekst. */
+function currentWeather(loc) {
+  const hours = forecastFor(state.forecasts, loc);
+  const h = hours && hourAt(hours, Date.now());
+  if (!h) return null;
+  let cls = classifySky(h.cc, h.precip);
+  let icon = SKY_ICON[cls];
+  let label = SKY_LABEL[cls];
+  if (h.vis != null && h.vis < 1000 && cls !== 'neerslag') { icon = '🌫️'; label = 'Mist'; }
+  else if (cls === 'helder' && globalThis.SunCalc.getPosition(new Date(), loc.lat, loc.lon).altitude < 0) icon = '🌙';
+  return `${icon} ${label} · ${Math.round(h.temp)}° · wind ${Math.round(h.wind)} km/u`;
+}
+
+const pct = (o) => Math.round(o.score * 100);
+const fogWord = (o) => (o.score >= 0.75 ? 'grote kans' : o.score >= 0.6 ? 'goede kans' : 'kans');
+/** Korte datum binnen de komende week: "vandaag 08:04", "morgen 16:57", "ma 08:04". */
+const whenShort = (t) => {
+  const d = fmtDay(t);
+  const day = d === 'Vandaag' || d === 'Morgen' ? d.toLowerCase() : new Date(t).toLocaleDateString('nl-BE', { weekday: 'short' }).replace('.', '');
+  return `${day} ${fmtTime(t)}`;
+};
+
+/** Mistkans-regel + eerstvolgende goede momenten voor de andere condities. */
+function outlookSummary(loc) {
+  const ol = state.outlooks.get(loc.id);
+  if (!ol) return '';
+  const fog = ol.conds.mist.next;
+  const fogLine = fog
+    ? `<div class="fog good">🌫️ Mist: <strong>${fogWord(fog)}</strong> ${whenShort(fog.time)}</div>`
+    : `<div class="fog muted">🌫️ Weinig kans op mist komende 7 dagen</div>`;
+  const nexts = Object.entries(ol.conds)
+    .filter(([c, v]) => c !== 'mist' && v.next)
+    .sort((a, b) => a[1].next.time - b[1].next.time)
+    .map(([c, v]) => `<span class="next-chip" title="${esc(CONDITIONS[c].label)}">${CONDITIONS[c].icon} ${whenShort(v.next.time)} <b>${pct(v.next)}</b></span>`);
+  return fogLine + (nexts.length ? `<div class="nexts">${nexts.join('')}</div>` : `<div class="small muted">Geen goede momenten voor andere condities komende 7 dagen</div>`);
 }
 function bestOppFor(locId, withinDays = 3) {
   const limit = dayNoon(new Date(), withinDays).getTime() - 12 * 3600 * 1000;
@@ -224,6 +270,8 @@ function renderLocations() {
         <div class="tags">${(l.tags || []).map((t) => CONDITIONS[t]?.icon + ' ' + CONDITIONS[t]?.label).join(' · ') || 'Geen labels'}</div>
         <div class="badges">${l.status ? `<span class="badge">${statusBadge[l.status]}</span>` : ''}${(l.collections || []).map((c) => `<span class="badge">📁 ${esc(c)}</span>`).join('')}</div>
         ${best ? `<div class="small muted">Beste kans: ${CONDITIONS[best.cond].label} ${fmtDay(best.time).toLowerCase()} ${fmtTime(best.time)} (${Math.round(best.score * 100)})</div>` : ''}
+        ${(() => { const w = currentWeather(l); return w ? `<div class="now">Nu: ${w}</div>` : ''; })()}
+        ${outlookSummary(l)}
       </div>
       <div class="dist">${d ? `${formatKm(d.km)}<br><span class="small">±${formatMinutes(d.min)}</span>` : ''}</div>
     </div>`;
@@ -841,7 +889,34 @@ function updateDialogInfo() {
   if (!Number.isFinite(loc.lat) || !Number.isFinite(loc.lon)) { $('#plan-out').innerHTML = ''; return; }
   const d = distanceTo(loc);
   $('#loc-distance').textContent = d ? `📍 ${formatKm(d.km)} hemelsbreed · ±${formatMinutes(d.min)} rijden vanaf ${state.settings.distanceFrom === 'home' && state.settings.home ? 'thuis' : 'je positie'}` : '';
+  renderOutlook(loc);
   renderPlanner(loc);
+}
+
+/** Raster: condities × 7 dagen, met per cel de beste score van die dag. */
+function renderOutlook(loc) {
+  const box = $('#outlook-out');
+  const hours = forecastFor(state.forecasts, loc);
+  if (!hours?.length) {
+    box.innerHTML = `<p class="muted small">Sla de locatie op om het weer van de komende 7 dagen te zien.</p>`;
+    return;
+  }
+  const ol = (loc.id && state.outlooks.get(loc.id)) || locationOutlook(loc, hours, { days: 7 });
+  const now = currentWeather(loc);
+  const head = ol.days.map((d, i) => `<th${i === 0 ? ' class="today"' : ''}>${new Date(d).toLocaleDateString('nl-BE', { weekday: 'short' }).slice(0, 2)}</th>`).join('');
+  const rows = Object.entries(ol.conds).map(([c, v]) => {
+    const cells = v.perDay.map((o) => (o
+      ? `<td class="${scoreClass(o.score)}" title="${esc(`${CONDITIONS[c].label} ${whenShort(o.time)}: ${pct(o)}`)}">${pct(o)}</td>`
+      : '<td class="na">–</td>')).join('');
+    return `<tr><th scope="row">${CONDITIONS[c].icon} <span>${CONDITIONS[c].label}</span></th>${cells}</tr>`;
+  }).join('');
+  const nexts = Object.entries(ol.conds).map(([c, v]) => `<li>${CONDITIONS[c].icon} ${CONDITIONS[c].label}: ${v.next
+    ? `<strong>${whenShort(v.next.time)}</strong> (${c === 'mist' ? fogWord(v.next) : pct(v.next)})`
+    : '<span class="muted">niet in de komende 7 dagen</span>'}</li>`).join('');
+  box.innerHTML = `${now ? `<p class="now">Nu: ${now}</p>` : ''}
+    <div class="outlook-scroll"><table class="outlook"><thead><tr><th></th>${head}</tr></thead><tbody>${rows}</tbody></table></div>
+    <h4>Eerstvolgende goede momenten</h4><ul class="next-list">${nexts}</ul>
+    <p class="muted small">Score 0–100 per dag (beste moment). Mist: kans bij zonsopkomst, ingeschat uit dauwpunt, wind, heldere nacht en zicht.</p>`;
 }
 
 function renderPlanner(loc) {

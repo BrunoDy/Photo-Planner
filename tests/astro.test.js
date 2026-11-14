@@ -57,3 +57,24 @@ test('planner: melkwegkans met venster en richting', async () => {
   assert.ok(o.reasons[0].text.includes('kijkrichting') || o.reasons.some((r) => r.text.startsWith('Kern max')));
   assert.ok(o.mw.start <= o.time && o.time <= o.mw.end);
 });
+
+test('vooruitzicht: eerstvolgende mist en andere condities', async () => {
+  const { locationOutlook } = await import('../js/planner.js');
+  const now = new Date('2026-11-14T10:00:00+01:00');
+  const hours = [];
+  for (let t = now.getTime() - 24 * 3600e3; t < now.getTime() + 8 * 24 * 3600e3; t += 3600e3) {
+    const day = Math.floor((t - now.getTime()) / 86400e3);
+    const hr = new Date(t).getUTCHours();
+    const night = hr < 8 || hr > 16;
+    // Dag 2 (overmorgen): windstil, verzadigd, helder → mist bij zonsopkomst.
+    const foggy = day === 1 && night;
+    hours.push({ t, temp: 6, dew: foggy ? 5.8 : 0, rh: foggy ? 99 : 65, cc: foggy ? 5 : 95, low: 90, mid: 90, high: 90, vis: foggy ? 300 : 20000, wind: foggy ? 2 : 25, precip: 0 });
+  }
+  const o = locationOutlook({ id: 'x', lat: 50.85, lon: 4.35 }, hours, { now });
+  assert.equal(o.days.length, 7);
+  assert.ok(o.conds.mist.next, 'mist gevonden');
+  assert.ok(new Date(o.conds.mist.next.time).getDate() === 16, `mist op ${new Date(o.conds.mist.next.time)}`);
+  assert.ok(o.conds.zachtlicht.next, 'bewolkte dag → zacht licht');
+  assert.ok(o.conds.sterren.next && o.conds.sterren.next.hour.cc === 5, 'enkel de heldere mistnacht geeft sterren');
+  assert.equal(o.conds.melkweg.next, null, 'november: geen melkweg');
+});

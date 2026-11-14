@@ -11,7 +11,14 @@ Eén overzicht voor landschapsfotografen. De app combineert:
    - **📡 Radar live:** geanimeerde neerslagradar van de laatste ±2 uur (RainViewer, beelden om de 10 minuten).
    - **☁️ Verwachting:** vloeiende kaart van bewolking en neerslag per uur, tot 48 uur vooruit (Open-Meteo), met een afspeelknop.
 6. **Lichtvervuiling** (🌃 of via de lagenknop). Een laag met de nachtelijke lichtuitstoot (NASA VIIRS Black Marble), om donkere plekken voor sterrenfoto's te vinden.
-7. **Bibliotheek** (tabblad 📚). Per locatie bewaar je een voorbeeldfoto (eigen foto of van Commons), collecties (bv. "Ardennen", "Bucketlist"), een status (wil ik bezoeken / bezocht), een ⭐ favoriet en een bronlink. Je kunt filteren op collectie, status, favoriet en label.
+7. **Bibliotheek** (tabblad 📚). Bij elke locatie, ook zonder labels, zie je:
+   - het **weer van nu** (helder, bewolkt, neerslag of mist, plus temperatuur en wind);
+   - de **mistkans** voor de komende 7 ochtenden (*grote kans*, *goede kans* of *kans*);
+   - het **eerstvolgende goede moment** voor zonsopkomst, zonsondergang, sterren, melkweg en zacht licht.
+
+   In het locatievenster staat een **vooruitzicht van 7 dagen**: een tabel met de score per conditie per dag.
+
+   Verder bewaar je per locatie een voorbeeldfoto (eigen foto of van Commons), collecties (bv. "Ardennen", "Bucketlist"), een status (wil ik bezoeken / bezocht), een ⭐ favoriet en een bronlink. Je kunt filteren op collectie, status, favoriet en label.
 8. **Plekken overnemen van andere sites.**
    - **📋 Plak link:** plak een link uit Google Maps, Apple Maps of OpenStreetMap, coördinaten (decimaal of 50°46'33"N 3°37'58"E), of een naam en adres. Op Locationscout en vergelijkbare sites kopieer je de kaartlink of de coördinaten van een spot.
    - **Delen naar de app** (Android, als de app geïnstalleerd is): in Google Maps of de browser tik je op *Delen → Fotospot Planner*.
