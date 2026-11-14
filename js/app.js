@@ -33,6 +33,16 @@ const state = {
 };
 
 /** Fotobron voor een locatie: eigen foto (IndexedDB) of link (bv. Commons). */
+const HOME_ID = '__home';
+
+/** De thuislocatie als (niet-verwijderbare) locatie, of null. */
+function homeLoc() {
+  const h = state.settings.home;
+  if (!h) return null;
+  const generic = !h.label || ['Thuis', 'Huidige positie', 'Gekozen op kaart'].includes(h.label);
+  return { id: HOME_ID, name: generic ? 'Thuis' : h.label, lat: h.lat, lon: h.lon, tags: [], isHome: true };
+}
+
 function photoSrc(l) {
   if (!l?.photo) return null;
   return l.photo === 'own' ? state.photos[l.id] || null : l.photo;
@@ -99,7 +109,7 @@ function locateMe({ quiet = false } = {}) {
 
 // ---------- Weer & kansen ----------
 async function refreshWeather(force = false) {
-  const locs = state.locations;
+  const locs = [...state.locations, homeLoc()].filter(Boolean);
   if (!locs.length) { state.opps = []; state.outlooks = new Map(); renderAll(); return; }
   setStatus('Weer ophalen…');
   try {
@@ -116,7 +126,7 @@ async function refreshWeather(force = false) {
 function computeOpps() {
   state.opps = allOpportunities(state.locations, (l) => forecastFor(state.forecasts, l), { days: 7 });
   state.outlooks = new Map();
-  for (const l of state.locations) {
+  for (const l of [...state.locations, homeLoc()].filter(Boolean)) {
     const hours = forecastFor(state.forecasts, l);
     if (hours?.length) state.outlooks.set(l.id, locationOutlook(l, hours, { days: 7 }));
   }
@@ -255,12 +265,23 @@ function renderLocations() {
   }).map((l) => ({ l, d: distanceTo(l), best: bestOppFor(l.id) }));
   locs.sort((a, b) => (b.l.favorite ? 1 : 0) - (a.l.favorite ? 1 : 0) || (a.d && b.d ? a.d.km - b.d.km : a.l.name.localeCompare(b.l.name)));
   const list = $('#loc-list');
+  const home = homeLoc();
+  const homeHtml = home ? `
+    <div class="loc home" data-open="${HOME_ID}" role="button" tabindex="0">
+      <span class="home-icon" aria-hidden="true">🏠</span>
+      <div class="body">
+        <div class="name">${esc(home.name)}${home.name !== 'Thuis' ? ' <span class="badge">Thuis</span>' : ''}</div>
+        ${(() => { const w = currentWeather(home); return w ? `<div class="now">Nu: ${w}</div>` : ''; })()}
+        ${outlookSummary(home)}
+      </div>
+      <div class="dist small">${state.here ? formatKm(distanceKm(state.here, home)) + '<br><span class="small">van jou</span>' : ''}</div>
+    </div>` : '';
   if (!state.locations.length) {
-    list.innerHTML = `<div class="empty"><h3>Je bibliotheek is nog leeg</h3><p>Tik op <strong>＋ Nieuw</strong> om je huidige positie op te slaan, op <strong>📋 Plak link</strong> om een plek van een andere site over te nemen, of ontdek foto's op de kaart (🖼️).</p></div>`;
+    list.innerHTML = homeHtml + `<div class="empty"><h3>Je bibliotheek is nog leeg</h3><p>Tik op <strong>＋ Nieuw</strong> om je huidige positie op te slaan, op <strong>📋 Plak link</strong> om een plek van een andere site over te nemen, of ontdek foto's op de kaart (🖼️).</p></div>`;
     return;
   }
   const statusBadge = { wil: '🎯 Wil ik bezoeken', bezocht: '✅ Bezocht' };
-  list.innerHTML = locs.map(({ l, d, best }) => {
+  list.innerHTML = homeHtml + locs.map(({ l, d, best }) => {
     const src = photoSrc(l);
     return `
     <div class="loc" data-open="${l.id}" role="button" tabindex="0">
@@ -379,8 +400,9 @@ function renderMarkers() {
     homeMarker = L.marker([state.settings.home.lat, state.settings.home.lon], {
       icon: L.divIcon({ className: '', html: '<div style="font-size:20px">🏠</div>', iconSize: [22, 22], iconAnchor: [11, 11] }),
     }).addTo(map).bindTooltip('Thuis');
+    homeMarker.on('click', () => showSunLines(homeLoc()));
   }
-  if (selectedLoc) showSunLines(state.locations.find((l) => l.id === selectedLoc.id) || null);
+  if (selectedLoc) showSunLines(selectedLoc.isHome ? homeLoc() : state.locations.find((l) => l.id === selectedLoc.id) || null);
 }
 
 // ---------- Zon- en maanlijnen ----------
@@ -810,10 +832,11 @@ function openLocation(loc, dateMs) {
   f.lon.value = loc.lon != null ? Number(loc.lon).toFixed(6) : '';
   f.direction.value = loc.direction ?? '';
   f.notes.value = loc.notes || '';
-  $('#loc-title').textContent = loc.id ? loc.name : 'Nieuwe locatie';
+  $('#loc-title').textContent = loc.isHome ? '🏠 Thuislocatie' : loc.id ? loc.name : 'Nieuwe locatie';
+  $('#loc-form').classList.toggle('home-mode', !!loc.isHome);
   $('#form-tags').innerHTML = Object.entries(CONDITIONS).map(([k, c]) =>
     `<button type="button" class="chip ${(loc.tags || []).includes(k) ? 'on' : ''}" data-ftag="${k}" title="${esc(c.hint)}">${c.icon} ${c.label}</button>`).join('');
-  $('#btn-delete').hidden = !loc.id;
+  $('#btn-delete').hidden = !loc.id || !!loc.isHome;
   f.status.value = loc.status || '';
   f.collections.value = (loc.collections || []).join(', ');
   f.sourceUrl.value = loc.sourceUrl || '';
@@ -888,7 +911,7 @@ function updateDialogInfo() {
   const loc = formLoc();
   if (!Number.isFinite(loc.lat) || !Number.isFinite(loc.lon)) { $('#plan-out').innerHTML = ''; return; }
   const d = distanceTo(loc);
-  $('#loc-distance').textContent = d ? `📍 ${formatKm(d.km)} hemelsbreed · ±${formatMinutes(d.min)} rijden vanaf ${state.settings.distanceFrom === 'home' && state.settings.home ? 'thuis' : 'je positie'}` : '';
+  $('#loc-distance').textContent = loc.isHome ? '' : d ? `📍 ${formatKm(d.km)} hemelsbreed · ±${formatMinutes(d.min)} rijden vanaf ${state.settings.distanceFrom === 'home' && state.settings.home ? 'thuis' : 'je positie'}` : '';
   renderOutlook(loc);
   renderPlanner(loc);
 }
@@ -1042,7 +1065,7 @@ function bind() {
     if (ft) { ft.classList.toggle('on'); updateDialogInfo(); return; }
     const o = e.target.closest('[data-open]');
     if (o) {
-      const loc = state.locations.find((l) => l.id === o.dataset.open);
+      const loc = o.dataset.open === HOME_ID ? homeLoc() : state.locations.find((l) => l.id === o.dataset.open);
       if (loc) openLocation(loc, o.dataset.date ? Number(o.dataset.date) : undefined);
       return;
     }
@@ -1139,6 +1162,12 @@ function bind() {
     const l = formLoc();
     if (!l.name) { f.name.focus(); return; }
     if (!Number.isFinite(l.lat) || !Number.isFinite(l.lon) || Math.abs(l.lat) > 90 || Math.abs(l.lon) > 180) { toast('Ongeldige coördinaten'); return; }
+    if (state.editing.isHome) {
+      setHome({ lat: l.lat, lon: l.lon, label: l.name });
+      dlg().close();
+      refreshWeather();
+      return;
+    }
     const pending = state.pendingPhoto;
     if (typeof pending === 'string') l.photo = 'own';
     else if (pending === null) { l.photo = ''; l.photoCredit = ''; }

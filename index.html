@@ -161,7 +161,7 @@
         <button type="button" class="icon-btn" id="btn-close-dialog" aria-label="Sluiten">✕</button>
       </header>
       <div class="sheet-body">
-        <div id="photo-box" class="photo-box">
+        <div id="photo-box" class="photo-box not-home">
           <img id="photo-img" alt="" hidden>
           <p id="photo-credit" class="small muted" hidden></p>
           <div class="row">
@@ -174,11 +174,11 @@
           <label>Breedtegraad <input name="lat" type="number" step="any" required></label>
           <label>Lengtegraad <input name="lon" type="number" step="any" required></label>
         </div>
-        <fieldset>
+        <fieldset class="not-home">
           <legend>Geschikt voor</legend>
           <div class="chips" id="form-tags"></div>
         </fieldset>
-        <fieldset>
+        <fieldset class="not-home">
           <legend>Bibliotheek</legend>
           <div class="row">
             <select name="status" aria-label="Status">
@@ -200,13 +200,14 @@
             </div>
           </label>
         </fieldset>
-        <label>Kijkrichting (graden, 0 = noord) <span class="muted small">— optioneel, voor "zon achter je onderwerp"</span>
+        <label class="not-home">Kijkrichting (graden, 0 = noord) <span class="muted small">— optioneel, voor "zon achter je onderwerp"</span>
           <div class="row">
             <input name="direction" type="number" min="0" max="359" step="1" placeholder="bv. 95">
             <button type="button" id="btn-compass">🧭 Meet</button>
           </div>
         </label>
-        <label>Notities <textarea name="notes" rows="3" placeholder="Parkeren, beste brandpuntsafstand, seizoen…"></textarea></label>
+        <label class="not-home">Notities <textarea name="notes" rows="3" placeholder="Parkeren, beste brandpuntsafstand, seizoen…"></textarea></label>
+        <p id="home-note" class="muted small only-home">🏠 Dit is je thuislocatie: het vertrekpunt voor afstanden en rijtijden. Je kunt hier naam en positie aanpassen.</p>
         <p id="loc-distance" class="muted"></p>
 
         <section id="outlook" class="planner">

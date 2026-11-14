@@ -257,3 +257,10 @@ table.outlook td.na { background: var(--surface); color: var(--muted); font-weig
 .next-list { list-style: none; padding: 0; margin: 6px 0; font-size: .88rem; display: grid; gap: 3px; }
 #outlook h4 { margin: 12px 0 0; font-size: .9rem; }
 table.outlook th.today { color: var(--accent); }
+
+/* Thuislocatie */
+.loc.home { border-color: var(--accent); background: linear-gradient(0deg, var(--surface), var(--surface)) padding-box; }
+.home-icon { font-size: 1.6rem; width: 52px; text-align: center; flex: none; }
+.only-home { display: none; }
+form.home-mode .only-home { display: block; }
+form.home-mode .not-home { display: none; }
