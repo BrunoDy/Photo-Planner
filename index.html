@@ -174,7 +174,7 @@
           <label>Breedtegraad <input name="lat" type="number" step="any" required></label>
           <label>Lengtegraad <input name="lon" type="number" step="any" required></label>
         </div>
-        <fieldset class="not-home">
+        <fieldset>
           <legend>Geschikt voor</legend>
           <div class="chips" id="form-tags"></div>
         </fieldset>
@@ -200,14 +200,14 @@
             </div>
           </label>
         </fieldset>
-        <label class="not-home">Kijkrichting (graden, 0 = noord) <span class="muted small">— optioneel, voor "zon achter je onderwerp"</span>
+        <label>Kijkrichting (graden, 0 = noord) <span class="muted small">— optioneel, voor "zon achter je onderwerp"</span>
           <div class="row">
             <input name="direction" type="number" min="0" max="359" step="1" placeholder="bv. 95">
             <button type="button" id="btn-compass">🧭 Meet</button>
           </div>
         </label>
         <label class="not-home">Notities <textarea name="notes" rows="3" placeholder="Parkeren, beste brandpuntsafstand, seizoen…"></textarea></label>
-        <p id="home-note" class="muted small only-home">🏠 Dit is je thuislocatie: het vertrekpunt voor afstanden en rijtijden. Je kunt hier naam en positie aanpassen.</p>
+        <p id="home-note" class="muted small only-home">🏠 Dit is je thuislocatie: het vertrekpunt voor afstanden en rijtijden. Je kunt hier naam, positie en labels aanpassen; met labels verschijnt thuis ook bij Kansen.</p>
         <p id="loc-distance" class="muted"></p>
 
         <section id="outlook" class="planner">

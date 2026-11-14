@@ -16,7 +16,7 @@ Eén overzicht voor landschapsfotografen. De app combineert:
    - de **mistkans** voor de komende 7 ochtenden (*grote kans*, *goede kans* of *kans*);
    - het **eerstvolgende goede moment** voor zonsopkomst, zonsondergang, sterren, melkweg en zacht licht.
 
-   Je **thuislocatie** staat altijd bovenaan de lijst, ook met filters, met hetzelfde weer, vooruitzicht en mistkans. Tik erop om naam of positie aan te passen.
+   Je **thuislocatie** staat altijd bovenaan de lijst, ook met filters, met hetzelfde weer, vooruitzicht en mistkans. Tik erop om naam, positie, labels of kijkrichting aan te passen. Met labels (bv. ✨ Sterren vanuit je tuin) verschijnt thuis ook bij Kansen.
 
    In het locatievenster staat een **vooruitzicht van 7 dagen**: een tabel met de score per conditie per dag.
 

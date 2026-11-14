@@ -40,8 +40,14 @@ function homeLoc() {
   const h = state.settings.home;
   if (!h) return null;
   const generic = !h.label || ['Thuis', 'Huidige positie', 'Gekozen op kaart'].includes(h.label);
-  return { id: HOME_ID, name: generic ? 'Thuis' : h.label, lat: h.lat, lon: h.lon, tags: [], isHome: true };
+  return { id: HOME_ID, name: generic ? 'Thuis' : h.label, lat: h.lat, lon: h.lon, tags: h.tags || [], direction: h.direction ?? null, isHome: true };
 }
+
+/** Alle locaties inclusief thuis (voor kansen en weer). */
+function allLocs() {
+  return [...state.locations, homeLoc()].filter(Boolean);
+}
+const findLoc = (id) => (id === HOME_ID ? homeLoc() : state.locations.find((l) => l.id === id));
 
 function photoSrc(l) {
   if (!l?.photo) return null;
@@ -124,7 +130,7 @@ async function refreshWeather(force = false) {
   renderAll();
 }
 function computeOpps() {
-  state.opps = allOpportunities(state.locations, (l) => forecastFor(state.forecasts, l), { days: 7 });
+  state.opps = allOpportunities(allLocs(), (l) => forecastFor(state.forecasts, l), { days: 7 });
   state.outlooks = new Map();
   for (const l of [...state.locations, homeLoc()].filter(Boolean)) {
     const hours = forecastFor(state.forecasts, l);
@@ -183,7 +189,7 @@ function renderCondChips() {
 }
 
 function oppCard(o) {
-  const loc = state.locations.find((l) => l.id === o.locId);
+  const loc = findLoc(o.locId);
   if (!loc) return '';
   const c = CONDITIONS[o.cond];
   const dist = distanceTo(loc);
@@ -196,12 +202,12 @@ function oppCard(o) {
   <article class="opp">
     <div class="score ${scoreClass(o.score)}"><div>${pct}<small>${scoreLabel(o.score)}</small></div></div>
     <div>
-      <h3>${c.icon} ${c.label} · ${esc(loc.name)}</h3>
+      <h3>${c.icon} ${c.label} · ${loc.isHome ? '🏠 ' : ''}${esc(loc.name)}</h3>
       <p class="when"><strong>${fmtDay(o.time)} ${fmtTime(o.time)}</strong> <span class="muted">(${whenLabel}${o.azimuth != null ? `, ${o.cond === 'melkweg' ? 'kern' : 'zon'} ${Math.round(o.azimuth)}° ${compassLabel(o.azimuth)}` : ''})</span></p>
-      <p class="meta">${dist ? `${formatKm(dist.km)} · ±${formatMinutes(dist.min)} rijden · <strong>vertrek ${fmtTime(depart)}</strong>` : 'Afstand onbekend (stel je thuislocatie in)'}</p>
+      <p class="meta">${loc.isHome ? 'Bij je thuis — niet rijden 🙂' : dist ? `${formatKm(dist.km)} · ±${formatMinutes(dist.min)} rijden · <strong>vertrek ${fmtTime(depart)}</strong>` : 'Afstand onbekend (stel je thuislocatie in)'}</p>
       <ul class="reasons">${reasons}</ul>
       <div class="actions">
-        <a href="${routeUrl(loc)}" target="_blank" rel="noopener">🚗 Route</a>
+        ${loc.isHome ? '' : `<a href="${routeUrl(loc)}" target="_blank" rel="noopener">🚗 Route</a>`}
         <button data-open="${loc.id}" data-date="${o.time}">Details</button>
       </div>
     </div>
@@ -210,11 +216,11 @@ function oppCard(o) {
 
 function renderOpps() {
   const list = $('#opp-list');
-  if (!state.locations.length) {
+  if (!allLocs().length) {
     list.innerHTML = `<div class="empty"><h3>Nog geen locaties</h3><p>Voeg je droomplekken toe via <strong>Kaart</strong> of <strong>Locaties</strong> en geef ze labels zoals <em>Mist</em> of <em>Zonsondergang</em>. Dan zie je hier wanneer het weer er perfect voor is.</p><button class="primary" data-goto="kaart">Naar de kaart</button></div>`;
     return;
   }
-  if (!state.locations.some((l) => (l.tags || []).length)) {
+  if (!allLocs().some((l) => (l.tags || []).length)) {
     list.innerHTML = `<div class="empty"><h3>Geef je locaties labels</h3><p>Open een locatie en vink aan waarvoor ze geschikt is (mist, zonsopkomst, sterren…).</p><button class="primary" data-goto="locaties">Naar locaties</button></div>`;
     return;
   }
@@ -271,6 +277,8 @@ function renderLocations() {
       <span class="home-icon" aria-hidden="true">🏠</span>
       <div class="body">
         <div class="name">${esc(home.name)}${home.name !== 'Thuis' ? ' <span class="badge">Thuis</span>' : ''}</div>
+        <div class="tags">${home.tags.map((t) => CONDITIONS[t]?.icon + ' ' + CONDITIONS[t]?.label).join(' · ') || 'Geen labels — tik om toe te voegen'}</div>
+        ${(() => { const b = bestOppFor(HOME_ID); return b ? `<div class="small muted">Beste kans: ${CONDITIONS[b.cond].label} ${fmtDay(b.time).toLowerCase()} ${fmtTime(b.time)} (${Math.round(b.score * 100)})</div>` : ''; })()}
         ${(() => { const w = currentWeather(home); return w ? `<div class="now">Nu: ${w}</div>` : ''; })()}
         ${outlookSummary(home)}
       </div>
@@ -1007,7 +1015,8 @@ async function measureCompass() {
 
 // ---------- Instellingen ----------
 function setHome(home) {
-  state.settings.home = home;
+  const prev = state.settings.home || {};
+  state.settings.home = { tags: prev.tags || [], direction: prev.direction ?? null, ...home };
   state.settings.distanceFrom = 'home';
   store.saveSettings(state.settings);
   toast('Thuislocatie ingesteld');
@@ -1163,7 +1172,7 @@ function bind() {
     if (!l.name) { f.name.focus(); return; }
     if (!Number.isFinite(l.lat) || !Number.isFinite(l.lon) || Math.abs(l.lat) > 90 || Math.abs(l.lon) > 180) { toast('Ongeldige coördinaten'); return; }
     if (state.editing.isHome) {
-      setHome({ lat: l.lat, lon: l.lon, label: l.name });
+      setHome({ lat: l.lat, lon: l.lon, label: l.name, tags: l.tags, direction: l.direction });
       dlg().close();
       refreshWeather();
       return;
