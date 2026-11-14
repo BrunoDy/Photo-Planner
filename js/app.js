@@ -194,24 +194,25 @@ function oppCard(o) {
   const c = CONDITIONS[o.cond];
   const dist = distanceTo(loc);
   const pct = Math.round(o.score * 100);
-  let target = o.arriveBy ?? o.time - 30 * 60000;
-  let depart = dist ? target - (dist.min + 10) * 60000 : null;
+  const target = o.arriveBy ?? o.time - 30 * 60000;
+  const depart = dist ? target - (dist.min + 10) * 60000 : null;
   const whenLabel = o.cond === 'melkweg' ? `kern zichtbaar ${fmtTime(o.mw.start)}–${fmtTime(o.mw.end)}` : o.cond === 'sterren' ? 'beste uur' : o.cond === 'zachtlicht' ? 'beste moment' : o.cond === 'zonsondergang' ? 'zonsondergang' : 'zonsopkomst';
-  const reasons = o.reasons.slice(0, 5).map((r) => `<li class="${r.good ? 'good' : 'bad'}">${esc(r.text)}</li>`).join('');
+  const tip = [
+    `${c.label} · ${loc.name}`,
+    `${fmtDay(o.time)} ${fmtTime(o.time)} (${whenLabel})`,
+    ...o.reasons.slice(0, 4).map((r) => `${r.good ? '✓' : '✗'} ${r.text}`),
+  ].join('\n');
+  const meta = loc.isHome
+    ? '🏠 thuis'
+    : dist ? `${formatKm(dist.km)}<br><b>vertrek ${fmtTime(depart)}</b>` : '';
   return `
-  <article class="opp">
-    <div class="score ${scoreClass(o.score)}"><div>${pct}<small>${scoreLabel(o.score)}</small></div></div>
-    <div>
-      <h3>${c.icon} ${c.label} · ${loc.isHome ? '🏠 ' : ''}${esc(loc.name)}</h3>
-      <p class="when"><strong>${fmtDay(o.time)} ${fmtTime(o.time)}</strong> <span class="muted">(${whenLabel}${o.azimuth != null ? `, ${o.cond === 'melkweg' ? 'kern' : 'zon'} ${Math.round(o.azimuth)}° ${compassLabel(o.azimuth)}` : ''})</span></p>
-      <p class="meta">${loc.isHome ? 'Bij je thuis — niet rijden 🙂' : dist ? `${formatKm(dist.km)} · ±${formatMinutes(dist.min)} rijden · <strong>vertrek ${fmtTime(depart)}</strong>` : 'Afstand onbekend (stel je thuislocatie in)'}</p>
-      <ul class="reasons">${reasons}</ul>
-      <div class="actions">
-        ${loc.isHome ? '' : `<a href="${routeUrl(loc)}" target="_blank" rel="noopener">🚗 Route</a>`}
-        <button data-open="${loc.id}" data-date="${o.time}">Details</button>
-      </div>
-    </div>
-  </article>`;
+  <button class="tile" data-open="${loc.id}" data-date="${o.time}" title="${esc(tip)}" aria-label="${esc(tip)}">
+    <span class="tile-top"><span class="tile-score ${scoreClass(o.score)}">${pct}</span><span class="tile-icon" aria-hidden="true">${c.icon}</span></span>
+    <span class="tile-cond">${c.label}</span>
+    <span class="tile-name">${esc(loc.name)}</span>
+    <span class="tile-when">${whenShort(o.time)}</span>
+    ${meta ? `<span class="tile-meta">${meta}</span>` : ''}
+  </button>`;
 }
 
 function renderOpps() {
