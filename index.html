@@ -52,11 +52,22 @@
       </div>
       <div id="map"></div>
       <div class="map-fab">
+        <button id="btn-light" class="fab" title="Lichtvervuiling" aria-label="Lichtvervuiling aan/uit" aria-pressed="false">🌃</button>
+        <button id="btn-weather" class="fab" title="Weerkaart België" aria-label="Weerkaart België" aria-pressed="false">🌦️</button>
         <button id="btn-locate" class="fab" title="Mijn positie" aria-label="Mijn positie">◎</button>
         <button id="btn-add-mode" class="fab primary" title="Locatie toevoegen" aria-label="Locatie toevoegen">＋</button>
       </div>
-      <div id="map-hint" class="map-hint" hidden>Tik op de kaart om de locatie te plaatsen <button id="btn-cancel-add" class="link">Annuleer</button></div>
-      <div id="sun-legend" class="sun-legend" hidden></div>
+      <div class="map-panels">
+        <div id="map-hint" class="panel" hidden><span id="map-hint-text">Tik op de kaart om de locatie te plaatsen</span> <button id="btn-cancel-add" class="link">Annuleer</button></div>
+        <div id="wx-panel" class="panel" hidden>
+          <div class="panel-head"><strong>Weer in België</strong> <span id="wx-time" class="muted"></span>
+            <button id="wx-close" class="link" aria-label="Weerkaart sluiten">✕</button></div>
+          <input id="wx-slider" type="range" min="0" max="47" value="0" aria-label="Tijdstip weerkaart">
+          <div id="wx-legend" class="wx-legend"></div>
+        </div>
+        <div id="sun-legend" class="panel" hidden></div>
+        <div id="light-legend" class="panel small" hidden>🌃 <strong>Lichtvervuiling</strong>: zwart = donker, geel/wit = veel kunstlicht</div>
+      </div>
     </section>
 
     <!-- LOCATIES -->
@@ -76,11 +87,12 @@
       <div class="card">
         <h2>Afstand berekenen vanaf</h2>
         <label class="radio"><input type="radio" name="distfrom" value="gps"> Mijn huidige positie (GPS)</label>
-        <label class="radio"><input type="radio" name="distfrom" value="home"> Vast vertrekpunt</label>
+        <label class="radio"><input type="radio" name="distfrom" value="home"> Thuislocatie</label>
         <p id="home-label" class="muted"></p>
         <div class="row">
-          <button id="btn-home-gps">Huidige positie als vertrekpunt</button>
+          <button id="btn-home-gps">Huidige positie als thuis</button>
           <button id="btn-home-map">Kies op kaart</button>
+          <button id="btn-home-search">Zoek adres</button>
         </div>
       </div>
       <div class="card">
@@ -100,7 +112,7 @@
       </div>
       <div class="card">
         <h2>Over</h2>
-        <p class="muted small">Weer: <a href="https://open-meteo.com" target="_blank" rel="noopener">Open-Meteo</a> (CC BY 4.0). Zon &amp; maan: SunCalc. Kaart: © OpenStreetMap-bijdragers, satelliet © Esri. Scores zijn een inschatting op basis van de verwachting — geen garantie.</p>
+        <p class="muted small">Weer: <a href="https://open-meteo.com" target="_blank" rel="noopener">Open-Meteo</a> (CC BY 4.0). Zon &amp; maan: SunCalc. Kaart: © OpenStreetMap-bijdragers, satelliet © Esri, lichtvervuiling © NASA Black Marble (VIIRS). Scores zijn een inschatting op basis van de verwachting — geen garantie.</p>
         <button id="btn-clear-cache">Weercache wissen</button>
       </div>
     </section>
@@ -152,6 +164,22 @@
         <button type="submit" class="primary" id="btn-save">Opslaan</button>
       </footer>
     </form>
+  </dialog>
+
+  <!-- Eerste start: thuislocatie -->
+  <dialog id="setup-dialog" class="sheet setup">
+    <div class="sheet-head"><h2>🏠 Stel eerst je thuislocatie in</h2>
+      <button type="button" class="icon-btn" id="setup-close" aria-label="Sluiten" hidden>✕</button></div>
+    <div class="sheet-body">
+      <p class="muted">Vanaf je thuislocatie berekent de app de afstand, de rijtijd en het uur waarop je moet vertrekken. Je kunt ze later wijzigen bij Instellingen.</p>
+      <button type="button" id="setup-gps" class="primary wide">📍 Gebruik mijn huidige positie</button>
+      <form id="setup-search" class="search">
+        <input id="setup-input" type="search" placeholder="Of zoek je adres of gemeente…" autocomplete="street-address">
+        <button type="submit">Zoek</button>
+      </form>
+      <div id="setup-results" class="search-results" hidden></div>
+      <button type="button" id="setup-map" class="wide">🗺️ Aanduiden op de kaart</button>
+    </div>
   </dialog>
 
   <div id="toast" class="toast" role="status" hidden></div>

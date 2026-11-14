@@ -5,12 +5,13 @@ const SET_KEY = 'psp.settings.v1';
 
 export const DEFAULT_SETTINGS = {
   home: null, // { lat, lon, label }
-  distanceFrom: 'gps', // 'gps' | 'home'
+  distanceFrom: 'home', // 'gps' | 'home'
   avgSpeed: 60,
   detour: 1.3,
   days: 3,
   minScore: 35,
   mapLayer: 'kaart',
+  lightPollution: false,
 };
 
 function read(key, fallback) {

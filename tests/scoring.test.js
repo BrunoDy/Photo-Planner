@@ -6,7 +6,7 @@ import { distanceKm, angleDiff, sunCalcAzimuthToCompass, travelMinutes } from '.
 
 const require = createRequire(import.meta.url);
 globalThis.SunCalc = require('../vendor/suncalc.js');
-const { opportunitiesForDay, dayNoon } = await import('../js/planner.js');
+const { opportunitiesForDay, dayNoon, sunInfo } = await import('../js/planner.js');
 
 const base = { temp: 5, dew: 4.5, rh: 97, cc: 10, low: 10, mid: 0, high: 0, vis: 24000, wind: 3, precip: 0 };
 const h = (o) => ({ ...base, ...o });
@@ -66,4 +66,28 @@ test('planner: maakt kansen voor gelabelde condities met zonazimut', () => {
   // In november gaat de zon in België onder richting zuidwest (~235°).
   assert.ok(sunset.azimuth > 220 && sunset.azimuth < 250, `${sunset.azimuth}`);
   assert.ok(sunset.reasons[0].text.includes('kijkrichting'));
+});
+
+test('weerkaart: classificatie en raster over België', async () => {
+  const { classifySky } = await import('../js/weather.js');
+  const { inPolygon, gridCells } = await import('../js/belgium.js');
+  assert.equal(classifySky(5, 0, 0), 'helder');
+  assert.equal(classifySky(40, 0, 2), 'licht');
+  assert.equal(classifySky(95, 0, 3), 'zwaar');
+  assert.equal(classifySky(30, 0.4, 61), 'neerslag');
+  assert.ok(inPolygon(50.85, 4.35), 'Brussel ligt in België');
+  assert.ok(inPolygon(51.05, 3.72), 'Gent ligt in België');
+  assert.ok(inPolygon(49.68, 5.82) || inPolygon(49.7, 5.6), 'Aarlen-streek');
+  assert.ok(!inPolygon(48.85, 2.35), 'Parijs niet');
+  assert.ok(!inPolygon(52.37, 4.9), 'Amsterdam niet');
+  const cells = gridCells();
+  assert.ok(cells.length > 80 && cells.length < 250, `${cells.length} cellen`);
+});
+
+test('planner: maanrichting bij op- en ondergang', () => {
+  const info = sunInfo(dayNoon(new Date('2026-11-20T12:00:00')), { lat: 50.85, lon: 4.35 });
+  for (const k of ['moonrise', 'moonset']) {
+    if (info[k]) assert.ok(info[k + 'Az'] > 0 && info[k + 'Az'] < 360);
+  }
+  assert.ok(info.moonrise || info.moonset);
 });

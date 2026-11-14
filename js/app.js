@@ -1,6 +1,7 @@
 import * as store from './store.js';
 import { CONDITIONS, scoreLabel } from './scoring.js';
-import { getForecasts, forecastFor, clearWeatherCache } from './weather.js';
+import { getForecasts, forecastFor, clearWeatherCache, getGridForecast, classifySky, SKY_CLASSES } from './weather.js';
+import { BE_OUTLINE, gridCells } from './belgium.js';
 import { allOpportunities, opportunitiesForDay, sunInfo, moonPhaseName, dayNoon, ALIGN_TOLERANCE } from './planner.js';
 import { distanceKm, travelMinutes, formatKm, formatMinutes, compassLabel, destination, angleDiff } from './geo.js';
 
@@ -121,7 +122,7 @@ function oppCard(o) {
     <div>
       <h3>${c.icon} ${c.label} · ${esc(loc.name)}</h3>
       <p class="when"><strong>${fmtDay(o.time)} ${fmtTime(o.time)}</strong> <span class="muted">(${whenLabel}${o.azimuth != null ? `, zon ${Math.round(o.azimuth)}° ${compassLabel(o.azimuth)}` : ''})</span></p>
-      <p class="meta">${dist ? `${formatKm(dist.km)} · ±${formatMinutes(dist.min)} rijden · <strong>vertrek ${fmtTime(depart)}</strong>` : 'Afstand onbekend (zet GPS of vertrekpunt)'}</p>
+      <p class="meta">${dist ? `${formatKm(dist.km)} · ±${formatMinutes(dist.min)} rijden · <strong>vertrek ${fmtTime(depart)}</strong>` : 'Afstand onbekend (stel je thuislocatie in)'}</p>
       <ul class="reasons">${reasons}</ul>
       <div class="actions">
         <a href="${routeUrl(loc)}" target="_blank" rel="noopener">🚗 Route</a>
@@ -198,6 +199,17 @@ let sunLayer = null;
 let hereMarker = null;
 let homeMarker = null;
 let selectedLoc = null;
+let lightLayer = null;
+
+function syncLight() {
+  const on = map.hasLayer(lightLayer);
+  $('#btn-light').setAttribute('aria-pressed', String(on));
+  $('#light-legend').hidden = !on;
+  if (state.settings.lightPollution !== on) {
+    state.settings.lightPollution = on;
+    store.saveSettings(state.settings);
+  }
+}
 
 function initMap() {
   if (map) return;
@@ -210,17 +222,26 @@ function initMap() {
   };
   const chosen = layers[state.settings.mapLayer] || layers.Kaart;
   chosen.addTo(map);
-  L.control.layers(layers, null, { position: 'topright' }).addTo(map);
+  // Lichtvervuiling: NASA VIIRS Black Marble (nachtelijke lichtuitstoot), gratis via NASA GIBS.
+  lightLayer = L.tileLayer(
+    'https://gibs.earthdata.nasa.gov/wmts/epsg3857/best/VIIRS_Black_Marble/default/2016-01-01/GoogleMapsCompatible_Level8/{z}/{y}/{x}.png',
+    { maxNativeZoom: 8, maxZoom: 19, opacity: 0.7, attribution: 'Nachtlicht © NASA Black Marble', className: 'light-tiles' },
+  );
+  L.control.layers(layers, { Lichtvervuiling: lightLayer }, { position: 'topright' }).addTo(map);
   map.on('baselayerchange', (e) => { state.settings.mapLayer = e.name; store.saveSettings(state.settings); });
+  map.on('overlayadd overlayremove', (e) => { if (e.layer === lightLayer) syncLight(); });
+  if (state.settings.lightPollution) lightLayer.addTo(map);
+  syncLight();
   markerLayer = L.layerGroup().addTo(map);
   sunLayer = L.layerGroup().addTo(map);
 
   map.on('click', (e) => {
     if (state.pickHome) {
+      const first = !state.settings.home;
       state.pickHome = false;
-      setHome({ lat: e.latlng.lat, lon: e.latlng.lng, label: 'Gekozen op kaart' });
-      $('#map-hint').hidden = true;
-      switchView('instellingen');
+      setHint('');
+      finishSetup({ lat: e.latlng.lat, lon: e.latlng.lng, label: 'Gekozen op kaart' });
+      if (!first) switchView('instellingen');
       return;
     }
     if (state.addMode) {
@@ -229,6 +250,7 @@ function initMap() {
     }
   });
   // Lang indrukken (contextmenu) voegt meteen een locatie toe.
+  map.on('zoomend', () => sunCtx && drawSunLines());
   map.on('contextmenu', (e) => openLocation({ name: '', lat: e.latlng.lat, lon: e.latlng.lng, tags: [], notes: '', direction: null }));
   renderMarkers();
   if (!state.pendingFocus) fitAll();
@@ -268,74 +290,197 @@ function renderMarkers() {
   if (state.settings.home) {
     homeMarker = L.marker([state.settings.home.lat, state.settings.home.lon], {
       icon: L.divIcon({ className: '', html: '<div style="font-size:20px">🏠</div>', iconSize: [22, 22], iconAnchor: [11, 11] }),
-    }).addTo(map).bindTooltip('Vertrekpunt');
+    }).addTo(map).bindTooltip('Thuis');
   }
   if (selectedLoc) showSunLines(state.locations.find((l) => l.id === selectedLoc.id) || null);
 }
 
-/** Tekent zon-opkomst/-ondergangsrichting voor een gekozen datum (à la PhotoPills). */
+// ---------- Zon- en maanlijnen ----------
+let sunCtx = null; // { loc, dateStr }
+
+/** Selecteert een locatie en tekent zon- en maanlijnen voor een datum (à la PhotoPills). */
 function showSunLines(loc, dateStr) {
   if (!map) return;
+  selectedLoc = loc;
+  sunCtx = loc ? { loc, dateStr: dateStr || sunCtx?.dateStr || null } : null;
+  drawSunLines();
+}
+
+/** Lijnlengte ≈ 40% van de kortste zijde van het kaartbeeld, zodat de lijnen op elk zoomniveau leesbaar zijn. */
+function lineLengthKm() {
+  const b = map.getBounds();
+  const sw = { lat: b.getSouth(), lon: b.getWest() };
+  const h = distanceKm(sw, { lat: b.getNorth(), lon: b.getWest() });
+  const w = distanceKm(sw, { lat: b.getSouth(), lon: b.getEast() });
+  return Math.max(0.2, 0.4 * Math.min(h, w));
+}
+
+function drawSunLines() {
   sunLayer.clearLayers();
   const legend = $('#sun-legend');
-  selectedLoc = loc;
-  if (!loc) { legend.hidden = true; return; }
-  const date = dateStr ? new Date(dateStr + 'T12:00') : new Date();
+  if (!sunCtx) { legend.hidden = true; return; }
+  const { loc } = sunCtx;
+  const date = sunCtx.dateStr ? new Date(sunCtx.dateStr + 'T12:00') : new Date();
   const info = sunInfo(dayNoon(date), loc);
-  const km = 8;
-  const line = (az, color, dash) => {
-    if (az == null) return;
-    const p = destination(loc, az, km);
-    L.polyline([[loc.lat, loc.lon], [p.lat, p.lon]], { color, weight: 4, opacity: 0.9, dashArray: dash }).addTo(sunLayer);
-  };
-  line(info.sunriseAz, '#ffd23f');
-  line(info.sunsetAz, '#ff7b39');
-  if (loc.direction != null && loc.direction !== '') line(Number(loc.direction), '#ffffff', '6 8');
   const t = info.times;
-  const iso = date.toISOString().slice(0, 10);
-  legend.innerHTML = `<strong>${esc(loc.name)}</strong>
-    <div><span class="swatch" style="background:#ffd23f"></span>Opkomst ${isNaN(t.sunrise) ? '–' : fmtTime(t.sunrise)} · ${info.sunriseAz != null ? Math.round(info.sunriseAz) + '°' : '–'}</div>
-    <div><span class="swatch" style="background:#ff7b39"></span>Ondergang ${isNaN(t.sunset) ? '–' : fmtTime(t.sunset)} · ${info.sunsetAz != null ? Math.round(info.sunsetAz) + '°' : '–'}</div>
-    ${loc.direction != null && loc.direction !== '' ? `<div><span class="swatch" style="background:#fff"></span>Kijkrichting ${Math.round(loc.direction)}°</div>` : ''}
-    <input type="date" id="sun-date" value="${iso}" aria-label="Datum voor zonstand">`;
+  const km = lineLengthKm();
+  const ok = (d) => d instanceof Date && !isNaN(d);
+
+  const lines = [
+    { icon: '🌅', label: 'Zonsopkomst', time: t.sunrise, az: info.sunriseAz, color: '#ffd23f', at: 1 },
+    { icon: '🌇', label: 'Zonsondergang', time: t.sunset, az: info.sunsetAz, color: '#ff7b39', at: 1 },
+    { icon: '🌕', label: 'Maanopkomst', time: info.moonrise, az: info.moonriseAz, color: '#a9d1ff', dash: '10 7', at: 0.72 },
+    { icon: '🌑', label: 'Maanondergang', time: info.moonset, az: info.moonsetAz, color: '#8b8cf0', dash: '10 7', at: 0.72 },
+  ];
+  for (const l of lines) {
+    if (l.az == null || !ok(l.time)) continue;
+    const end = destination(loc, l.az, km);
+    L.polyline([[loc.lat, loc.lon], [end.lat, end.lon]], { color: l.color, weight: 4, opacity: 0.95, dashArray: l.dash }).addTo(sunLayer);
+    const lp = destination(loc, l.az, km * l.at);
+    L.marker([lp.lat, lp.lon], {
+      interactive: false,
+      icon: L.divIcon({ className: 'line-label', html: `<span style="border-color:${l.color}">${l.icon} ${fmtTime(l.time)}</span>`, iconSize: [0, 0] }),
+    }).addTo(sunLayer);
+  }
+  const hasDir = loc.direction != null && loc.direction !== '';
+  if (hasDir) {
+    const end = destination(loc, Number(loc.direction), km * 0.85);
+    L.polyline([[loc.lat, loc.lon], [end.lat, end.lon]], { color: '#ffffff', weight: 3, opacity: 0.9, dashArray: '3 7' }).addTo(sunLayer);
+  }
+
+  const cell = (l) => `<div class="sun-cell"><span class="swatch${l.dash ? ' dash' : ''}" style="background:${l.color};color:${l.color}"></span>
+    <span title="${l.label}">${l.icon}</span> <strong>${ok(l.time) ? fmtTime(l.time) : '–'}</strong>
+    <span class="muted">${l.az != null && ok(l.time) ? Math.round(l.az) + '° ' + compassLabel(l.az) : 'n.v.t.'}</span></div>`;
+  const d = date;
+  const iso = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+  legend.innerHTML = `<div class="panel-head"><strong class="ellipsis">${esc(loc.name || 'Locatie')}</strong>
+      <input type="date" id="sun-date" value="${iso}" aria-label="Datum voor zon en maan">
+      <button id="sun-close" class="link" aria-label="Lijnen verbergen">✕</button></div>
+    <div class="sun-grid">${lines.map(cell).join('')}</div>
+    <div class="small muted">🌙 ${moonPhaseName(info.moonPhase)} (${Math.round(info.moonFraction * 100)}%)${hasDir ? ` · 🎯 kijkrichting ${Math.round(loc.direction)}°` : ''}</div>`;
   legend.hidden = false;
   $('#sun-date').onchange = (e) => showSunLines(loc, e.target.value);
+  $('#sun-close').onclick = () => showSunLines(null);
+}
+
+function setHint(text) {
+  $('#map-hint-text').textContent = text;
+  $('#map-hint').hidden = !text;
 }
 
 function setAddMode(on) {
   state.addMode = on;
-  $('#map-hint').hidden = !on;
-  $('#map-hint').firstChild.textContent = 'Tik op de kaart om de locatie te plaatsen ';
+  setHint(on ? 'Tik op de kaart om de locatie te plaatsen' : '');
   $('#btn-add-mode').classList.toggle('on', on);
-  if (on) $('#sun-legend').hidden = true;
 }
 
-async function searchPlace(q) {
-  const box = $('#search-results');
+// ---------- Weerkaart België ----------
+let wxLayer = null;
+let wxData = null;
+let wxCells = null;
+let wxOn = false;
+
+function wxIndexToTime(i) {
+  const base = new Date();
+  base.setMinutes(0, 0, 0);
+  return base.getTime() + i * 3600000;
+}
+
+async function toggleWeather(on = !wxOn) {
+  wxOn = on;
+  $('#btn-weather').setAttribute('aria-pressed', String(on));
+  $('#wx-panel').hidden = !on;
+  if (!on) { wxLayer?.clearLayers(); return; }
+  map.closePopup();
+  if (!wxLayer) wxLayer = L.layerGroup().addTo(map);
+  wxCells = wxCells || gridCells();
+  const be = L.latLngBounds(BE_OUTLINE);
+  if (!map.getBounds().intersects(be) || map.getZoom() > 10) map.fitBounds(be, { padding: [10, 10] });
+  $('#wx-legend').innerHTML = Object.values(SKY_CLASSES).map((c) => `<span style="--c:${c.color}">${c.label}</span>`).join('');
+  if (!wxData || Date.now() - wxData.fetched > 3600000) {
+    $('#wx-time').textContent = 'laden…';
+    try {
+      wxData = await getGridForecast(wxCells);
+    } catch (e) {
+      $('#wx-time').textContent = 'mislukt';
+      toast('Weerkaart laden mislukt: ' + e.message);
+      return;
+    }
+  }
+  renderWeather();
+}
+
+function renderWeather() {
+  if (!wxOn || !wxData) return;
+  const target = wxIndexToTime(Number($('#wx-slider').value));
+  let idx = wxData.t.findIndex((t) => t >= target);
+  if (idx < 0) idx = wxData.t.length - 1;
+  const t = wxData.t[idx];
+  $('#wx-time').textContent = `${fmtDay(t)} ${fmtTime(t)}`;
+  wxLayer.clearLayers();
+  wxCells.forEach((c, i) => {
+    const d = wxData.cells[i];
+    if (!d) return;
+    const cls = classifySky(d.cc[idx], d.pr[idx], d.wc?.[idx]);
+    L.rectangle([[c.south, c.west], [c.north, c.east]], {
+      stroke: false, fillColor: SKY_CLASSES[cls].color, fillOpacity: 0.5, interactive: false,
+    }).addTo(wxLayer);
+  });
+  L.polyline(BE_OUTLINE, { color: '#ffffff', weight: 1.5, opacity: 0.8, interactive: false }).addTo(wxLayer);
+}
+
+// ---------- Adres zoeken ----------
+async function geocode(q) {
+  const res = await fetch(`https://nominatim.openstreetmap.org/search?format=jsonv2&limit=6&accept-language=nl&q=${encodeURIComponent(q)}`);
+  if (!res.ok) throw new Error(res.status);
+  return res.json();
+}
+
+async function showGeocodeResults(q, box, onPick) {
   box.hidden = false;
   box.innerHTML = '<div class="muted small" style="padding:10px">Zoeken…</div>';
   try {
-    const res = await fetch(`https://nominatim.openstreetmap.org/search?format=jsonv2&limit=6&accept-language=nl&q=${encodeURIComponent(q)}`);
-    const data = await res.json();
+    const data = await geocode(q);
     if (!data.length) { box.innerHTML = '<div class="muted small" style="padding:10px">Niets gevonden</div>'; return; }
     box.innerHTML = '';
     for (const r of data) {
       const b = document.createElement('button');
+      b.type = 'button';
       b.textContent = r.display_name;
-      b.onclick = () => {
-        box.hidden = true;
-        map.setView([+r.lat, +r.lon], 14);
-        L.popup().setLatLng([+r.lat, +r.lon]).setContent((() => {
-          const d = document.createElement('div');
-          d.innerHTML = `${esc(r.display_name.split(',')[0])}<br><button class="primary">Opslaan als locatie</button>`;
-          d.querySelector('button').onclick = () => openLocation({ name: r.display_name.split(',')[0], lat: +r.lat, lon: +r.lon, tags: [], notes: '', direction: null });
-          return d;
-        })()).openOn(map);
-      };
+      b.onclick = () => { box.hidden = true; onPick(r); };
       box.appendChild(b);
     }
   } catch {
     box.innerHTML = '<div class="muted small" style="padding:10px">Zoeken mislukt (offline?)</div>';
+  }
+}
+
+function searchPlace(q) {
+  showGeocodeResults(q, $('#search-results'), (r) => {
+    map.setView([+r.lat, +r.lon], 14);
+    const d = document.createElement('div');
+    d.innerHTML = `${esc(r.display_name.split(',')[0])}<br><button class="primary">Opslaan als locatie</button>`;
+    d.querySelector('button').onclick = () => openLocation({ name: r.display_name.split(',')[0], lat: +r.lat, lon: +r.lon, tags: [], notes: '', direction: null });
+    L.popup().setLatLng([+r.lat, +r.lon]).setContent(d).openOn(map);
+  });
+}
+
+// ---------- Thuislocatie (eerste start) ----------
+const setupDlg = () => $('#setup-dialog');
+
+function openSetup({ required = !state.settings.home } = {}) {
+  $('#setup-close').hidden = required;
+  $('#setup-results').hidden = true;
+  if (!setupDlg().open) setupDlg().showModal();
+}
+
+function finishSetup(home) {
+  const first = !state.settings.home;
+  setHome(home);
+  if (setupDlg().open) setupDlg().close();
+  if (first) {
+    toast('Thuislocatie ingesteld. Voeg nu je fotolocaties toe.', 4000);
+    switchView(state.locations.length ? 'kansen' : 'kaart');
   }
 }
 
@@ -377,7 +522,7 @@ function updateDialogInfo() {
   const loc = formLoc();
   if (!Number.isFinite(loc.lat) || !Number.isFinite(loc.lon)) { $('#plan-out').innerHTML = ''; return; }
   const d = distanceTo(loc);
-  $('#loc-distance').textContent = d ? `📍 ${formatKm(d.km)} hemelsbreed · ±${formatMinutes(d.min)} rijden vanaf ${state.settings.distanceFrom === 'home' && state.settings.home ? 'vertrekpunt' : 'je positie'}` : '';
+  $('#loc-distance').textContent = d ? `📍 ${formatKm(d.km)} hemelsbreed · ±${formatMinutes(d.min)} rijden vanaf ${state.settings.distanceFrom === 'home' && state.settings.home ? 'thuis' : 'je positie'}` : '';
   renderPlanner(loc);
 }
 
@@ -448,14 +593,14 @@ function setHome(home) {
   state.settings.home = home;
   state.settings.distanceFrom = 'home';
   store.saveSettings(state.settings);
-  toast('Vertrekpunt ingesteld');
+  toast('Thuislocatie ingesteld');
   renderAll();
 }
 
 function renderSettings() {
   const s = state.settings;
   $$('input[name="distfrom"]').forEach((r) => (r.checked = r.value === s.distanceFrom));
-  $('#home-label').textContent = s.home ? `🏠 ${s.home.label || 'Vertrekpunt'}: ${s.home.lat.toFixed(4)}, ${s.home.lon.toFixed(4)}` : 'Nog geen vast vertrekpunt ingesteld.';
+  $('#home-label').textContent = s.home ? `🏠 ${s.home.label || 'Thuis'} (${s.home.lat.toFixed(4)}, ${s.home.lon.toFixed(4)})` : 'Nog geen thuislocatie ingesteld.';
   $('#set-speed').value = s.avgSpeed;
   $('#set-detour').value = s.detour;
   $('#set-minscore').value = s.minScore;
@@ -523,7 +668,20 @@ function bind() {
 
   // Kaart
   $('#btn-add-mode').onclick = () => setAddMode(!state.addMode);
-  $('#btn-cancel-add').onclick = () => { setAddMode(false); state.pickHome = false; };
+  $('#btn-cancel-add').onclick = () => {
+    setAddMode(false);
+    if (state.pickHome) {
+      state.pickHome = false;
+      if (!state.settings.home) openSetup();
+    }
+  };
+  $('#btn-weather').onclick = () => toggleWeather();
+  $('#btn-light').onclick = () => {
+    if (map.hasLayer(lightLayer)) map.removeLayer(lightLayer);
+    else lightLayer.addTo(map);
+  };
+  $('#wx-close').onclick = () => toggleWeather(false);
+  $('#wx-slider').oninput = renderWeather;
   $('#btn-locate').onclick = async () => {
     const p = await locateMe();
     if (p) { map.setView([p.lat, p.lon], 13); renderAll(); }
@@ -578,18 +736,35 @@ function bind() {
     state.settings.distanceFrom = r.value;
     store.saveSettings(state.settings);
     if (r.value === 'gps') await locateMe();
-    else if (!state.settings.home) toast('Stel eerst een vertrekpunt in');
+    else if (!state.settings.home) openSetup();
     renderAll();
   }));
   $('#btn-home-gps').onclick = async () => {
     const p = await locateMe();
-    if (p) setHome({ ...p, label: 'Thuis' });
+    if (p) finishSetup({ ...p, label: 'Huidige positie' });
   };
-  $('#btn-home-map').onclick = () => {
+  const pickHomeOnMap = () => {
+    if (setupDlg().open) setupDlg().close();
+    setAddMode(false);
     state.pickHome = true;
     switchView('kaart');
-    $('#map-hint').hidden = false;
-    $('#map-hint').firstChild.textContent = 'Tik op de kaart om je vertrekpunt te kiezen ';
+    setHint('Tik op de kaart op je thuislocatie');
+  };
+  $('#btn-home-map').onclick = pickHomeOnMap;
+  $('#btn-home-search').onclick = () => openSetup({ required: false });
+
+  // Startvenster thuislocatie
+  setupDlg().addEventListener('cancel', (e) => { if (!state.settings.home) e.preventDefault(); });
+  $('#setup-close').onclick = () => setupDlg().close();
+  $('#setup-map').onclick = pickHomeOnMap;
+  $('#setup-gps').onclick = async () => {
+    const p = await locateMe();
+    if (p) finishSetup({ ...p, label: 'Huidige positie' });
+  };
+  $('#setup-search').onsubmit = (e) => {
+    e.preventDefault();
+    const q = $('#setup-input').value.trim();
+    if (q) showGeocodeResults(q, $('#setup-results'), (r) => finishSetup({ lat: +r.lat, lon: +r.lon, label: r.display_name.split(',').slice(0, 2).join(',') }));
   };
   const num = (id, key, min, max) => ($(id).onchange = (e) => {
     const v = Number(e.target.value);
@@ -634,6 +809,7 @@ async function start() {
   let initial = 'kansen';
   try { initial = sessionStorage.getItem('psp.view') || 'kansen'; } catch { /* ignore */ }
   switchView(initial);
+  if (!state.settings.home) openSetup();
   if (state.settings.distanceFrom === 'gps') locateMe({ quiet: true }).then(() => renderAll());
   await refreshWeather();
   // Elk uur opnieuw scoren (cache bepaalt of er echt opgehaald wordt).

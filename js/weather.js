@@ -28,7 +28,7 @@ function saveCache(cache) {
   }
 }
 export function clearWeatherCache() {
-  try { localStorage.removeItem(CACHE_KEY); } catch { /* ignore */ }
+  try { localStorage.removeItem(CACHE_KEY); localStorage.removeItem('psp.grid.v1'); } catch { /* ignore */ }
 }
 
 /** Zet het Open-Meteo-antwoord om naar een lijst uur-objecten. */
@@ -117,4 +117,60 @@ export function hourAt(hours, t) {
 
 export function hoursBetween(hours, from, to) {
   return hours.filter((h) => h.t >= from && h.t <= to);
+}
+
+// ---------- Weerkaart (raster over België) ----------
+
+export const SKY_CLASSES = {
+  helder: { label: 'Helder', color: '#f5c542' },
+  licht: { label: 'Lichtbewolkt', color: '#9fb4c8' },
+  zwaar: { label: 'Zwaarbewolkt', color: '#56606e' },
+  neerslag: { label: 'Neerslag', color: '#2f7de1' },
+};
+
+/** Deelt een uur in: neerslag gaat voor, anders volgens bewolkingsgraad. */
+export function classifySky(cc, precip, code) {
+  if ((precip ?? 0) >= 0.1 || (code != null && code >= 51)) return 'neerslag';
+  if (cc < 20) return 'helder';
+  if (cc < 65) return 'licht';
+  return 'zwaar';
+}
+
+const GRID_KEY = 'psp.grid.v1';
+
+/**
+ * Uurlijkse bewolking/neerslag voor een raster van punten (2 dagen vooruit).
+ * @returns {Promise<{t: number[], cells: {cc: number[], pr: number[], wc: number[]}[]}>}
+ *          t = tijdstippen (ms), per cel arrays in dezelfde volgorde als `points`.
+ */
+export async function getGridForecast(points, { force = false } = {}) {
+  const sig = `${points.length}:${points[0]?.lat},${points[0]?.lon}`;
+  try {
+    const c = JSON.parse(localStorage.getItem(GRID_KEY));
+    if (!force && c && c.sig === sig && Date.now() - c.fetched < TTL_MS) return c;
+  } catch { /* geen cache */ }
+
+  const out = { sig, fetched: Date.now(), t: null, cells: [] };
+  const step = 50;
+  for (let i = 0; i < points.length; i += step) {
+    const batch = points.slice(i, i + step);
+    const params = new URLSearchParams({
+      latitude: batch.map((p) => p.lat).join(','),
+      longitude: batch.map((p) => p.lon).join(','),
+      hourly: 'cloud_cover,precipitation,weather_code',
+      timeformat: 'unixtime',
+      timezone: 'UTC',
+      forecast_days: '3',
+    });
+    const res = await fetch(`${API}?${params}`);
+    if (!res.ok) throw new Error(`Weerdienst gaf fout ${res.status}`);
+    let json = await res.json();
+    if (!Array.isArray(json)) json = [json];
+    for (const j of json) {
+      if (!out.t) out.t = j.hourly.time.map((x) => x * 1000);
+      out.cells.push({ cc: j.hourly.cloud_cover, pr: j.hourly.precipitation, wc: j.hourly.weather_code });
+    }
+  }
+  try { localStorage.setItem(GRID_KEY, JSON.stringify(out)); } catch { /* te groot: geen cache */ }
+  return out;
 }

@@ -1,8 +1,8 @@
 // Service worker: app-shell offline beschikbaar; weer en kaarttegels via netwerk.
-const CACHE = 'psp-shell-v1';
+const CACHE = 'psp-shell-v2';
 const SHELL = [
   './', 'index.html', 'css/app.css', 'manifest.webmanifest', 'icons/icon.svg', 'icons/icon-192.png',
-  'js/app.js', 'js/geo.js', 'js/planner.js', 'js/scoring.js', 'js/store.js', 'js/weather.js',
+  'js/app.js', 'js/belgium.js', 'js/geo.js', 'js/planner.js', 'js/scoring.js', 'js/store.js', 'js/weather.js',
   'vendor/suncalc.js', 'vendor/leaflet/leaflet.js', 'vendor/leaflet/leaflet.css',
   'vendor/leaflet/images/layers.png', 'vendor/leaflet/images/layers-2x.png',
 ];

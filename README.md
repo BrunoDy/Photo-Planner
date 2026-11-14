@@ -2,11 +2,14 @@
 
 Eén overzicht voor landschapsfotografen. De app combineert:
 
+0. **Thuislocatie eerst.** Bij de eerste start kies je je thuis via GPS, een adres of de kaart. Daarvandaan rekent de app afstand, rijtijd en vertrekuur.
 1. **Locaties spotten en bewaren.** Je bewaart plekken via de kaart (OSM, satelliet of topo), via zoeken of met je GPS-positie, met labels, notities en een kijkrichting.
 2. **Afstand en reistijd.** De app rekent vanaf je huidige positie of een vast vertrekpunt, geeft een vertrektijd en een routeknop naar Google Maps.
-3. **Zon en maan, zoals de PhotoPills-planner.** Voor elke datum zie je het blauwe uur, het gouden uur, zonsopkomst en -ondergang met hun richting, de maanfase en maanopkomst. Op de kaart staan lijnen voor de opkomst- en ondergangsrichting. Er is ook een check of de zon in je kijkrichting staat ("achter het kerkje").
+3. **Zon en maan, zoals de PhotoPills-planner.** Voor elke datum zie je het blauwe uur, het gouden uur, zonsopkomst en -ondergang met hun richting, de maanfase en maanopkomst. Tik je op de kaart op een locatie, dan verschijnen lijnen voor zonsopkomst, zonsondergang, maanopkomst en maanondergang, telkens met het tijdstip op de lijn. Je kunt de datum kiezen. Er is ook een check of de zon in je kijkrichting staat ("achter het kerkje").
 4. **Weer, zoals Clear Outside.** De app haalt per uur de verwachting op via Open-Meteo: dauwpunt, vochtigheid, wind, zicht en lage, middelhoge en hoge bewolking.
-5. **De match.** Het tabblad **Kansen** zet elke gelabelde locatie tegenover het weer van de komende dagen. Een voorbeeld: *"Morgen 07:58 – Mist · Kluisbos – score 86 – vertrek 06:50"*.
+5. **Weerkaart van België** (🌦️ op de kaart). Per uur, tot 2 dagen vooruit, zie je waar het helder, lichtbewolkt of zwaarbewolkt is en waar het regent.
+6. **Lichtvervuiling** (🌃 of via de lagenknop). Een laag met de nachtelijke lichtuitstoot (NASA VIIRS Black Marble), om donkere plekken voor sterrenfoto's te vinden.
+7. **De match.** Het tabblad **Kansen** zet elke gelabelde locatie tegenover het weer van de komende dagen. Een voorbeeld: *"Morgen 07:58 – Mist · Kluisbos – score 86 – vertrek 06:50"*.
 
 ## Condities en hoe ze gescoord worden
 
@@ -45,6 +48,7 @@ js/app.js             UI, kaart, dialogen
 js/planner.js         locatie × zon/maan × weer → kansen
 js/scoring.js         scoremodellen (puur, getest)
 js/weather.js         Open-Meteo ophalen + cache (1 u)
+js/belgium.js         omtrek België + weerraster
 js/geo.js             afstand, richting, reistijd
 js/store.js           opslag, import/export
 sw.js                 offline app-shell
@@ -52,4 +56,4 @@ vendor/               Leaflet 1.9.4, SunCalc 1.9.0 (BSD-2)
 tests/                node:test unit tests
 ```
 
-Bronnen: weer © [Open-Meteo](https://open-meteo.com) (CC BY 4.0), kaart © OpenStreetMap-bijdragers, satelliet © Esri, topo © OpenTopoMap.
+Bronnen: weer © [Open-Meteo](https://open-meteo.com) (CC BY 4.0), kaart © OpenStreetMap-bijdragers, satelliet © Esri, topo © OpenTopoMap, nachtlicht © NASA Black Marble (GIBS).

@@ -23,12 +23,15 @@ export function sunInfo(dateNoon, loc) {
   const az = (d) => (valid(d) ? sunCalcAzimuthToCompass(SC().getPosition(d, loc.lat, loc.lon).azimuth) : null);
   const moonTimes = SC().getMoonTimes(dateNoon, loc.lat, loc.lon);
   const moonIll = SC().getMoonIllumination(dateNoon);
+  const moonAz = (d) => (valid(d) ? sunCalcAzimuthToCompass(SC().getMoonPosition(d, loc.lat, loc.lon).azimuth) : null);
   return {
     times: t,
     sunriseAz: az(t.sunrise),
     sunsetAz: az(t.sunset),
     moonrise: moonTimes.rise ?? null,
     moonset: moonTimes.set ?? null,
+    moonriseAz: moonAz(moonTimes.rise),
+    moonsetAz: moonAz(moonTimes.set),
     moonFraction: moonIll.fraction,
     moonPhase: moonIll.phase,
   };
