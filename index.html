@@ -1,0 +1,161 @@
+<!doctype html>
+<html lang="nl">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>Fotospot Planner</title>
+  <meta name="description" content="Bewaar fotolocaties en zie wanneer mist, zonsopkomst, zonsondergang of sterren er perfect zijn.">
+  <meta name="theme-color" content="#11151c">
+  <link rel="manifest" href="manifest.webmanifest">
+  <link rel="icon" href="icons/icon.svg" type="image/svg+xml">
+  <link rel="apple-touch-icon" href="icons/icon-192.png">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <link rel="stylesheet" href="vendor/leaflet/leaflet.css">
+  <link rel="stylesheet" href="css/app.css">
+  <script src="vendor/suncalc.js"></script>
+  <script src="vendor/leaflet/leaflet.js"></script>
+</head>
+<body>
+  <header class="topbar">
+    <h1>📷 Fotospot Planner</h1>
+    <span id="status" class="status" aria-live="polite"></span>
+    <button id="btn-refresh" class="icon-btn" title="Weer vernieuwen" aria-label="Weer vernieuwen">⟳</button>
+  </header>
+
+  <main>
+    <!-- KANSEN -->
+    <section id="view-kansen" class="view active" aria-label="Kansen">
+      <div class="filters">
+        <div class="chips" id="cond-chips" role="group" aria-label="Conditie"></div>
+        <div class="row">
+          <select id="day-filter" aria-label="Periode">
+            <option value="0">Vandaag</option>
+            <option value="1">Morgen</option>
+            <option value="3" selected>Komende 3 dagen</option>
+            <option value="7">Komende 7 dagen</option>
+          </select>
+          <label class="check"><input type="checkbox" id="show-low"> Ook lage scores</label>
+        </div>
+      </div>
+      <div id="opp-list" class="list"></div>
+    </section>
+
+    <!-- KAART -->
+    <section id="view-kaart" class="view" aria-label="Kaart">
+      <div class="map-tools">
+        <form id="search-form" class="search">
+          <input id="search-input" type="search" placeholder="Zoek plaats of adres…" autocomplete="off">
+          <button type="submit">Zoek</button>
+        </form>
+        <div id="search-results" class="search-results" hidden></div>
+      </div>
+      <div id="map"></div>
+      <div class="map-fab">
+        <button id="btn-locate" class="fab" title="Mijn positie" aria-label="Mijn positie">◎</button>
+        <button id="btn-add-mode" class="fab primary" title="Locatie toevoegen" aria-label="Locatie toevoegen">＋</button>
+      </div>
+      <div id="map-hint" class="map-hint" hidden>Tik op de kaart om de locatie te plaatsen <button id="btn-cancel-add" class="link">Annuleer</button></div>
+      <div id="sun-legend" class="sun-legend" hidden></div>
+    </section>
+
+    <!-- LOCATIES -->
+    <section id="view-locaties" class="view" aria-label="Locaties">
+      <div class="filters">
+        <div class="row">
+          <input id="loc-search" type="search" placeholder="Zoek in je locaties…">
+          <button id="btn-new-loc" class="primary">＋ Nieuw</button>
+        </div>
+        <div class="chips" id="tag-chips" role="group" aria-label="Filter op label"></div>
+      </div>
+      <div id="loc-list" class="list"></div>
+    </section>
+
+    <!-- INSTELLINGEN -->
+    <section id="view-instellingen" class="view" aria-label="Instellingen">
+      <div class="card">
+        <h2>Afstand berekenen vanaf</h2>
+        <label class="radio"><input type="radio" name="distfrom" value="gps"> Mijn huidige positie (GPS)</label>
+        <label class="radio"><input type="radio" name="distfrom" value="home"> Vast vertrekpunt</label>
+        <p id="home-label" class="muted"></p>
+        <div class="row">
+          <button id="btn-home-gps">Huidige positie als vertrekpunt</button>
+          <button id="btn-home-map">Kies op kaart</button>
+        </div>
+      </div>
+      <div class="card">
+        <h2>Reistijd en planning</h2>
+        <label>Gemiddelde snelheid (km/u) <input id="set-speed" type="number" min="10" max="130" step="5"></label>
+        <label>Omrijfactor (weg t.o.v. hemelsbreed) <input id="set-detour" type="number" min="1" max="2" step="0.05"></label>
+        <label>Minimale score in overzicht <input id="set-minscore" type="number" min="0" max="100" step="5"></label>
+      </div>
+      <div class="card">
+        <h2>Back-up en import</h2>
+        <p class="muted">Je locaties staan enkel op dit toestel. Maak geregeld een back-up.</p>
+        <div class="row">
+          <button id="btn-export">Exporteer (JSON)</button>
+          <label class="button">Importeer…<input id="file-import" type="file" accept=".json,.geojson,.gpx,.kml,application/json,application/gpx+xml" hidden></label>
+        </div>
+        <p class="muted small">Import ondersteunt: eigen back-up, GeoJSON (bv. Google Takeout "Opgeslagen plaatsen"), GPX-waypoints en KML-placemarks.</p>
+      </div>
+      <div class="card">
+        <h2>Over</h2>
+        <p class="muted small">Weer: <a href="https://open-meteo.com" target="_blank" rel="noopener">Open-Meteo</a> (CC BY 4.0). Zon &amp; maan: SunCalc. Kaart: © OpenStreetMap-bijdragers, satelliet © Esri. Scores zijn een inschatting op basis van de verwachting — geen garantie.</p>
+        <button id="btn-clear-cache">Weercache wissen</button>
+      </div>
+    </section>
+  </main>
+
+  <nav class="tabbar" aria-label="Navigatie">
+    <button data-view="kansen" class="active"><span>🎯</span>Kansen</button>
+    <button data-view="kaart"><span>🗺️</span>Kaart</button>
+    <button data-view="locaties"><span>📍</span>Locaties</button>
+    <button data-view="instellingen"><span>⚙️</span>Instellingen</button>
+  </nav>
+
+  <!-- Locatie-detail / bewerken -->
+  <dialog id="loc-dialog" class="sheet">
+    <form id="loc-form" method="dialog">
+      <header class="sheet-head">
+        <h2 id="loc-title">Locatie</h2>
+        <button type="button" class="icon-btn" id="btn-close-dialog" aria-label="Sluiten">✕</button>
+      </header>
+      <div class="sheet-body">
+        <label>Naam <input name="name" required placeholder="bv. Kluisbos – uitkijk op vallei"></label>
+        <div class="row two">
+          <label>Breedtegraad <input name="lat" type="number" step="any" required></label>
+          <label>Lengtegraad <input name="lon" type="number" step="any" required></label>
+        </div>
+        <fieldset>
+          <legend>Geschikt voor</legend>
+          <div class="chips" id="form-tags"></div>
+        </fieldset>
+        <label>Kijkrichting (graden, 0 = noord) <span class="muted small">— optioneel, voor "zon achter je onderwerp"</span>
+          <div class="row">
+            <input name="direction" type="number" min="0" max="359" step="1" placeholder="bv. 95">
+            <button type="button" id="btn-compass">🧭 Meet</button>
+          </div>
+        </label>
+        <label>Notities <textarea name="notes" rows="3" placeholder="Parkeren, beste brandpuntsafstand, seizoen…"></textarea></label>
+        <p id="loc-distance" class="muted"></p>
+
+        <section id="planner" class="planner">
+          <h3>Planner</h3>
+          <label>Datum <input type="date" id="plan-date"></label>
+          <div id="plan-out"></div>
+        </section>
+      </div>
+      <footer class="sheet-foot">
+        <button type="button" id="btn-delete" class="danger">Verwijder</button>
+        <button type="button" id="btn-route">Route</button>
+        <button type="button" id="btn-show-map">Op kaart</button>
+        <button type="submit" class="primary" id="btn-save">Opslaan</button>
+      </footer>
+    </form>
+  </dialog>
+
+  <div id="toast" class="toast" role="status" hidden></div>
+
+  <script type="module" src="js/app.js"></script>
+</body>
+</html>
